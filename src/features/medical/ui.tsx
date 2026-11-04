@@ -21,10 +21,10 @@ export function MedicalDeadlineForm({initial,onSave,busy,error}:{initial:string|
   <Text accessibilityRole="header" style={styles.title}>공단에서 안내받은 제출기한이 있나요?</Text>
   <Text style={styles.secondary}>실제로 안내받은 날짜만 선택해 주세요. 이미 지난 날짜도 등록할 수 있어요.</Text>
   <MonthGrid month={month} date={date} datePurpose="의사소견서 제출기한 선택" onMonth={setMonth} onDate={setDate} busy={busy}/>
-  {!!date&&<Text accessibilityLiveRegion="polite" style={styles.body}>{formatDay(date,true)}</Text>}
+  <Text accessibilityLiveRegion="polite" style={styles.body}>{date?formatDay(date,true):'안내받은 제출기한을 선택해 주세요.'}</Text>
   {!!error&&<Text accessibilityRole="alert" style={styles.notice}>{error}</Text>}
-  <Action label={busy?'저장 중…':'날짜 저장'} disabled={busy||!date} onPress={()=>onSave(date)}/>
-  <Action label="아직 안내받지 못했어요" secondary disabled={busy} onPress={()=>onSave(null)}/>
+  <Pressable accessibilityRole="button" accessibilityLabel={busy?'제출기한 저장 중':'날짜 저장'} accessibilityState={{disabled:busy||!date,busy}} disabled={busy||!date} onPress={()=>onSave(date)} style={({pressed})=>[styles.button,{opacity:date?1:.45,backgroundColor:pressed?colors.muted:colors.green}]}><Text style={styles.buttonText}>날짜 저장</Text></Pressable>
+  <Pressable accessibilityRole="button" accessibilityState={{disabled:busy,busy}} disabled={busy} onPress={()=>onSave(null)} style={({pressed})=>[styles.link,{backgroundColor:pressed?colors.pale:'transparent'}]}><Text style={styles.linkText}>아직 안내받지 못했어요</Text></Pressable>
  </>;
 }
 export function MedicalSummary({today,showSources=false}:{today?:string;showSources?:boolean}){

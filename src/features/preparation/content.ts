@@ -35,7 +35,7 @@ const one:Record<string,PreparationItem[]>={
 const two=[
   item('visit-check','일정과 장소, 동석 확인',['공단에서 안내한 조사 일시, 장소를 확인하고 변경이 필요하면 담당자와 협의하세요. 함께 상황을 설명할 사람이 있다면 동석 가능 여부와 준비사항을 미리 문의하세요.'], 'visit'),
   item('care-review','평소 돌봄 상황 정리',['관찰한 상황과 실제 제공한 도움을 있는 그대로 설명할 준비를 해요. 기존 돌봄일지는 기억을 정리할 개인 참고자료이며 공식 제출, 채택을 보장하지 않아요. 위험한 동작을 시험하거나 과장, 연출할 필요는 없어요.'], 'visit'),
-  item('requested','안내받은 준비물, 서류 메모',['공단이 개별적으로 요청한 준비물과 서류를 적고 확인하세요. 모든 사람에게 같은 추가 서류가 필요하다고 가정하지 않아요.'], 'visit',true),
+  item('requested','안내받은 준비물과 서류',['공단이 개별적으로 요청한 준비물과 서류를 실제로 챙겨 주세요. 모든 사람에게 같은 추가 서류가 필요하다고 가정하지 않아요.'], 'visit',true),
   {...medical,optional:true},
   item('visit-questions','방문조사 후 확인할 내용',['방문조사 후 의사소견서나 추가 자료, 다음 연락 방법 등에 관해 물어볼 내용을 미리 적어두세요. 방문 뒤에는 조사 자료와 소견서 등을 토대로 등급판정 절차가 이어져요.'], 'visit',true),
 ];
@@ -73,4 +73,4 @@ export const purposeLabels={first:'처음 신청',renewal:'갱신',change:'등�
 export const resultLabels={recognized:'장기요양등급을 받았어요','not-recognized':'등급을 받지 못했어요',unsure:'결과 내용을 잘 모르겠어요'};
 export const opinionLabels={unknown:'아직 확인하지 않았어요',preparing:'준비 중이에요',submitted:'제출했어요','not-required':'제출하지 않아도 된다고 안내받았어요'};
 
-export function preparationGroups(stage:StageId,p:Preparation){const items=preparationItems(stage,p);return [{kind:'check' as const,title:'확인할 내용',description:'필요한 내용을 읽고, 내 상황에 맞는지 확인해 주세요.',items:items.filter(item=>item.kind==='check')},{kind:'prepare' as const,title:'준비할 일',description:'아직 준비할 일이 있다면, 하나씩 함께 준비해봐요.',items:items.filter(item=>item.kind==='prepare')}];}
+export function preparationGroups(stage:StageId,p:Preparation){const items=preparationItems(stage,p);return [{kind:'check' as const,title:'확인할 내용',description:'필요한 내용을 읽고, 내 상황에 맞는지 확인해 주세요.',items:items.filter(item=>item.kind==='check')},{kind:'prepare' as const,title:'준비할 일',description:'필요한 서류와 준비물을 챙긴 뒤 준비 완료를 눌러주세요.',items:items.filter(item=>item.kind==='prepare')}];}

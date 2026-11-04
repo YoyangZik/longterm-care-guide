@@ -52,3 +52,10 @@ test('only physical documents and requested supplies are preparation tasks in ev
   for(const item of f.content.preparationItems(stage,p))assert.equal(item.kind,physical.includes(item.id)?'prepare':'check',item.id);
  }
 });
+
+test('checklist labels distinguish reading from physical preparation independently of list order',()=>{
+ const f=api();const status=f.load('src/features/preparation/status.ts');
+ for(const id of ['documents','requested'])for(const [value,label] of [['unknown','준비하기'],['todo','준비 중'],['done','준비 완료']])assert.equal(status.checklistStateLabel(id,value),label);
+ for(const id of ['eligibility','services','agency','consult','care-review']){assert.equal(status.checklistStateLabel(id,'unknown'),'확인하기');assert.equal(status.checklistStateLabel(id,'todo'),'확인하기');assert.equal(status.checklistStateLabel(id,'done'),'확인 완료');}
+ assert.equal(status.checklistStateLabel('requested','na'),'요청받은 준비물 없음');
+});
