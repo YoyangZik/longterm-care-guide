@@ -3,6 +3,7 @@ import { validDate } from './calendar';
 import { localDate } from './time';
 import { generatedBody } from './situation-model';
 import { politeTemplate } from './summary-tone';
+import { previewBody } from './demo-label';
 
 export type ReviewPeriod=7|30|90|'all';
 export function reviewRange(period:ReviewPeriod,today=localDate()){
@@ -18,9 +19,13 @@ export function firstRecordSentence(body:string){
  return line.match(/^.*?[.!?。！？](?=\s|$)/)?.[0]??line;
 }
 export function recordOneLine(record:SituationRecord){
- if(record.method!=='questions'||record.edited||record.body!==record.generated||generatedBody(record)!==record.body)return firstRecordSentence(record.body);
+ const body=previewBody(record);
+ if(record.aiSummary?.status==='pending')return '요약 중…';
+ if(record.aiSummary?.status==='ready'&&record.aiSummary.text)return record.aiSummary.text;
+ if(record.aiSummary?.status==='failed')return firstRecordSentence(body);
+ if(record.method!=='questions'||record.edited||record.body!==record.generated||generatedBody(record)!==record.body)return firstRecordSentence(body);
  const {event,help,difficulty}=record.answers;
- if(!event?.trim())return firstRecordSentence(record.body);
+ if(!event?.trim())return firstRecordSentence(body);
  const knownEvent=record.questionSnapshot.find(q=>q.id==='event')?.choices.some(c=>c.text===event);
  // Only a known template's neutral ending is shortened. User words, negation
  // and uncertainty remain verbatim; multiple actual helps retain their order.

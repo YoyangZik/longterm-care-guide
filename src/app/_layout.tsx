@@ -24,7 +24,7 @@ function Routes(){
         <Stack.Screen name="app-notices"/><Stack.Screen name="faq"/><Stack.Screen name="medical-opinion"/>
         <Stack.Screen name="(tabs)"/><Stack.Screen name="guide" options={{animation:'none'}}/><Stack.Screen name="situation"/><Stack.Screen name="preparation"/><Stack.Screen name="preparation-detail"/><Stack.Screen name="preparation-question"/><Stack.Screen name="visit-walkthrough"/>
         <Stack.Protected guard={canEditVisit(stage)} redirectTo="/home"><Stack.Screen name="visit"/></Stack.Protected>
-        <Stack.Protected guard={!testing} redirectTo="/home"><Stack.Screen name="records"/><Stack.Screen name="drafts"/><Stack.Screen name="records-review"/><Stack.Screen name="records-calendar"/></Stack.Protected>
+        <Stack.Protected guard={!testing} redirectTo="/home"><Stack.Screen name="records"/><Stack.Screen name="drafts"/><Stack.Screen name="records-review"/><Stack.Screen name="records-calendar"/><Stack.Screen name="developer-settings"/><Stack.Screen name="ai-settings"/></Stack.Protected>
       </Stack.Protected>
       <Stack.Screen name="login"/><Stack.Screen name="signup"/><Stack.Screen name="trial"/><Stack.Screen name="care-stage"/><Stack.Screen name="explore"/>
     </Stack.Protected>

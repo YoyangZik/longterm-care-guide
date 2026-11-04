@@ -5,10 +5,12 @@ import { visibleFinalItems } from './presentation';
 import { questionFor, recordDate } from './model';
 import { hasSituationInput, situationTypes, type SituationRecord } from './situation-model';
 import { validDate } from './calendar';
+import { fingerprint, type AISummary } from './ai-model';
 
 export const situationStorageKey='care-diary:situation-records:v2';
 type Store={version:2;records:SituationRecord[];legacyImported:boolean;deleted?:string[]};
 let queue:Promise<unknown>=Promise.resolve();
+let recoveredAI=false;
 const listeners=new Set<()=>void>();
 export function subscribeSituations(listener:()=>void){listeners.add(listener);return()=>{listeners.delete(listener);};}
 function transaction<T>(action:()=>Promise<T>):Promise<T>{const token=dataGeneration();const previous=queue;const next=dataTask(()=>previous.then(()=>{assertDataSession(token);return action();}),token);queue=next.catch(()=>{});return next;}
@@ -33,11 +35,32 @@ async function load():Promise<Store>{
   }
   store.legacyImported=true;await write(store);
  }
+ if(!recoveredAI){recoveredAI=true;let changed=false;for(const r of store.records){if(r.aiSummary?.status==='pending'){r.aiSummary={...r.aiSummary,status:'failed'};changed=true;}}if(changed)await write(store);}
  return store;
 }
 export function listSituations(){return transaction(async()=>(await load()).records.filter(r=>r.status==='saved'||hasSituationInput(r)));}
+// Explicit developer-only fixture import. Bypasses saveSituation's AI side effect.
+export function importDemoSituations(records:SituationRecord[]){
+ if(!__DEV__)return Promise.reject(new Error('개발 환경에서만 가상 자료를 넣을 수 있어요.'));
+ const snapshots=JSON.parse(JSON.stringify(records)) as SituationRecord[];
+ return transaction(async()=>{
+  const store=await load();const existing=new Set([...store.records.map(r=>r.id),...(store.deleted??[])]);let added=0;
+  for(const r of snapshots){assertSituation(r);if(!r.id.startsWith('demo-care-90-v1:')||!r.body.startsWith('[기능 테스트용 가상 기록]')||r.aiSummary)throw new Error('Invalid demo record');if(!existing.has(r.id)){store.records.push(r);existing.add(r.id);added++;}}
+  if(added)await write(store);return added;
+ });
+}
 export function saveSituation(record:SituationRecord){
  const snapshot=JSON.parse(JSON.stringify(record)) as SituationRecord;
- return transaction(async()=>{assertSituation(snapshot);const store=await load();if(store.deleted?.includes(snapshot.id))throw new Error('Record was deleted');const at=store.records.findIndex(r=>r.id===snapshot.id);if(at<0&&snapshot.status==='draft'&&!hasSituationInput(snapshot))return snapshot;if(at>=0){const before=store.records[at];if(before.createdAt!==snapshot.createdAt||before.date!==snapshot.date||before.savedAt&&snapshot.savedAt!==before.savedAt)throw new Error('Immutable timing');if(before.status==='saved'&&snapshot.status==='draft'||before.revision>=snapshot.revision)return before;store.records[at]=snapshot;}else store.records.push(snapshot);await write(store);return snapshot;});
+ let changed=false;
+ return transaction(async()=>{assertSituation(snapshot);const store=await load();if(store.deleted?.includes(snapshot.id))throw new Error('Record was deleted');const at=store.records.findIndex(r=>r.id===snapshot.id);if(at<0&&snapshot.status==='draft'&&!hasSituationInput(snapshot))return snapshot;if(at>=0){const before=store.records[at];if(before.createdAt!==snapshot.createdAt||before.date!==snapshot.date||before.savedAt&&snapshot.savedAt!==before.savedAt)throw new Error('Immutable timing');if(before.status==='saved'&&snapshot.status==='draft'||before.revision>=snapshot.revision)return before;changed=snapshot.status==='saved'&&(before.status!=='saved'||fingerprint(before)!==fingerprint(snapshot));snapshot.aiSummary=changed?undefined:before.aiSummary;store.records[at]=snapshot;}else {changed=snapshot.status==='saved';delete snapshot.aiSummary;store.records.push(snapshot);}await write(store);return snapshot;}).then(saved=>{
+  // The durable original write has completed. AI failure never rejects this save.
+  if(changed)void import('./ai-client').then(ai=>ai.summarizeRecord(saved.id)).catch(()=>{});
+  return saved;
+ });
 }
+export function patchSituationAI(id:string,identity:string,summary:AISummary,expectedRequest?:string){return transaction(async()=>{
+ const store=await load();const record=store.records.find(r=>r.id===id);
+ if(!record||record.status!=='saved'||fingerprint(record)!==identity||expectedRequest&&record.aiSummary?.requestId!==expectedRequest)return false;
+ record.aiSummary=summary;await write(store);return true;
+});}
 export function deleteSituation(id:string){return transaction(async()=>{const store=await load();store.records=store.records.filter(r=>r.id!==id);store.deleted=[...new Set([...(store.deleted??[]),id])];await write(store);});}

@@ -11,24 +11,19 @@ import { validDate } from './calendar';
 import { localDate } from './time';
 import { querySituations, recordOneLine, reviewRange, situationsOnDay, type ReviewPeriod } from './situation-query';
 import { typeLabel, type SituationRecord } from './situation-model';
+import { isDemoRecord } from './demo-label';
 
 export type RecordsView='entry'|'review'|'calendar';
 function RecordCard({item,featured}:{item:SituationRecord;featured?:string}){
- const [expanded,setExpanded]=useState(false);const [answersOpen,setAnswersOpen]=useState(false);
- return <View style={{paddingVertical:14,paddingHorizontal:4,gap:8,borderBottomWidth:1,borderColor:colors.border,backgroundColor:item.id===featured?colors.pale:'transparent'}}>
-  <Pressable accessibilityRole="button" accessibilityLabel={formatDay(item.date,true)+' '+typeLabel(item.type!)+(expanded?' 기록 접기':' 기록 전체 펼쳐보기')} accessibilityState={{expanded}} onPress={()=>setExpanded(!expanded)} style={({pressed})=>({gap:10,opacity:pressed?.7:1})}>
-   {item.id===featured&&<Text accessibilityLiveRegion="polite" style={[styles.secondary,{color:colors.green}]}>방금 저장한 기록</Text>}
-   <View style={styles.row}><Text style={[styles.secondary,{fontSize:15,lineHeight:22}]}>{formatTimestamp(item.savedAt??item.createdAt,false)}</Text><Text style={[styles.secondary,{fontSize:15,lineHeight:22}]}>{typeLabel(item.type!)}</Text></View>
-   {item.method==='direct'&&!item.legacyOriginal&&<View style={{flexDirection:'row',alignItems:'center',gap:6}}><BrandIcon name="edit" size={16} color={colors.muted}/><Text style={[styles.secondary,{fontSize:15,lineHeight:23}]}>직접 남긴 기록</Text></View>}
-   {!expanded&&<Text numberOfLines={1} ellipsizeMode="tail" style={[styles.body,{fontWeight:'500'}]}>{recordOneLine(item)}</Text>}
-   <View style={{flexDirection:'row',alignItems:'center',gap:4}}><Text style={[styles.secondary,{color:colors.green,fontSize:15,lineHeight:22}]}>{expanded?'접기':'자세히 보기'}</Text><View style={{transform:[{rotate:expanded?'-90deg':'90deg'}]}}><BrandIcon name="next" size={14} color={colors.green}/></View></View>
-  </Pressable>
-  {expanded&&<><Text selectable style={styles.body}>{item.body}</Text>
-   {item.method==='questions'&&<><SubtleButton label={answersOpen?'작성 답변 접기':'작성 답변 보기'} expanded={answersOpen} onPress={()=>setAnswersOpen(!answersOpen)}/>{answersOpen&&item.questionSnapshot.map(q=><View key={q.id} style={{gap:6,paddingVertical:8}}><Text style={styles.label}>{q.prompt}</Text><Text selectable style={styles.body}>{item.answers[q.id]||'답변하지 않았어요.'}</Text>{!!item.answers[q.id+':detail']&&<Text selectable style={styles.body}>{item.answers[q.id+':detail']}</Text>}</View>)}</>}
-   <SubtleButton label="기록 상세 보기" onPress={()=>router.push({pathname:'/records',params:{view:item.id}})}/>
-  </>}
- </View>;
+ return <Pressable accessibilityRole="button" accessibilityLabel={formatDay(item.date,true)+' '+typeLabel(item.type!)} onPress={()=>router.push({pathname:'/records',params:{view:item.id}})} style={[styles.card,{marginVertical:6,gap:10}]}>
+  {item.id===featured&&<Text style={styles.secondary}>방금 저장한 기록</Text>}
+  <View style={styles.row}><Text style={styles.secondary}>{formatTimestamp(item.savedAt??item.createdAt,false)}</Text><Text style={styles.secondary}>{typeLabel(item.type!)}</Text></View>
+  {isDemoRecord(item)&&<Text style={[styles.secondary,{alignSelf:'flex-start',fontSize:13,lineHeight:19,backgroundColor:colors.pale,color:colors.green,paddingHorizontal:8,paddingVertical:3,borderRadius:6}]}>가상 기록</Text>}
+  <Text numberOfLines={2} ellipsizeMode="tail" style={styles.body}>{recordOneLine(item)}</Text>
+  <Text style={[styles.secondary,{color:colors.green}]}>자세히 보기</Text>
+ </Pressable>;
 }
+
 function EntryCard({label,description,icon,onPress,disabled}:{label:string;description:string;icon:'edit'|'review';onPress:()=>void;disabled:boolean}){
  return <Pressable accessibilityRole="button" accessibilityState={{disabled}} disabled={disabled} onPress={onPress} style={({pressed})=>[styles.card,{padding:22,minHeight:142,gap:18,borderRadius:20,opacity:disabled?.45:pressed?.75:1}]}>
   <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between'}}><View style={{backgroundColor:colors.pale,padding:12,borderRadius:16}}><BrandIcon name={icon==='edit'?'edit':'book'} size={26} color={colors.green}/></View><BrandIcon name="next" size={20} color={colors.green}/></View>
@@ -59,6 +54,14 @@ export function RecordsBrowser({records,testing,day,featured,mode='entry',onEntr
   <View style={styles.row}><Text accessibilityRole="header" style={[styles.title,{flex:1}]}>{mode==='calendar'?'날짜로 돌아보기':'돌봄기록 돌아보기'}</Text>
    {mode==='review'?<Pressable accessibilityRole="button" accessibilityLabel="캘린더에서 날짜별 기록 보기" onPress={()=>router.push('/records-calendar')} style={({pressed})=>({minWidth:48,minHeight:48,alignItems:'center',justifyContent:'center',opacity:pressed?.7:1})}><BrandIcon name="calendar" size={22} color={colors.green}/></Pressable>:<OverflowMenu label="캘린더 더보기" title="돌봄기록" disabled={testing} items={[{label:`작성 중인 기록${draftCount?` ${draftCount}건`:''}`,onPress:()=>router.push('/drafts')}]}/>}
   </View>
+  <Pressable accessibilityRole="button" accessibilityLabel="AI 종합 보고서" onPress={()=>router.push('/care-reports')} style={({pressed})=>[styles.card,{backgroundColor:colors.pale,borderColor:colors.green,padding:18,gap:8,opacity:pressed?.75:1}]}>
+   <View style={{flexDirection:'row',alignItems:'center',gap:12}}>
+    <View style={{backgroundColor:colors.surface,padding:10,borderRadius:12}}><BrandIcon name="book" size={24} color={colors.green}/></View>
+    <Text style={[styles.label,{color:colors.green,flex:1,fontSize:21,lineHeight:31}]}>AI 종합 보고서</Text>
+    <BrandIcon name="next" size={20} color={colors.green}/>
+   </View>
+   <Text style={styles.secondary}>기간별로 돌봄기록을 정리하고,{ '\n'}보고서와 PDF를 확인해요.</Text>
+  </Pressable>
   {mode==='calendar'?<>
    <View><MonthGrid month={month} date={date} datePurpose="돌봄기록 날짜 선택" onMonth={value=>{setMonth(value);setDate(value===today.slice(0,7)?today:value+'-01');setLimit(20);}} onDate={value=>{setDate(value);setLimit(20);}} records={d=>({completed:records.filter(r=>r.status==='saved'&&r.date===d).length,pending:0})}/></View>
    <View style={styles.row}><Text accessibilityRole="header" style={styles.label}>{formatDay(date,true)}</Text><Text style={[styles.secondary,styles.standalone]}>기록 {shown.length}건</Text></View>

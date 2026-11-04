@@ -35,7 +35,16 @@
           "resizeMode": "contain"
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-sharing",
+      "expo-secure-store",
+      [
+        "expo-file-system",
+        {
+          "supportsOpeningDocumentsInPlace": true,
+          "enableFileSharing": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

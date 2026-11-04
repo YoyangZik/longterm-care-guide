@@ -7,6 +7,7 @@ test('first-run test starts empty and keeps every original storage byte unchange
   const realGuidance={...guidance.freshGuidance(),seen:{'awaiting-result':true},visit:{date:'2026-11-10',time:'14:30'},visitSetupDone:true};
   await guidance.saveGuidance(realGuidance);
   f.values.set('care-diary:care-records:v1','original diary bytes');f.values.set('care-diary:preparation:v1','original preparation bytes');
+  f.values.set('care-diary:ai-consent:v1','v1');f.values.set('care-diary:ai-reports:v1','original AI reports');f.values.set('care-diary:notifications:v1','original notification preferences');
   const before=[...f.values];const {deviceStartRepository:device,createFirstRunTestRepository:create}=f.load('src/features/start/repository.ts');
   const original=await device.load();const memory=create(true);assert.deepEqual(await memory.load(),{onboarded:false,stage:null,guidance:guidance.freshGuidance()});
   await memory.finishIntro();await memory.saveStageDraft('before-application');assert.equal(await memory.readStageDraft(),'before-application');

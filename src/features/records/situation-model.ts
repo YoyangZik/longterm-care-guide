@@ -1,3 +1,4 @@
+import type { AISummary } from './ai-model';
 import { localDate } from './time';
 import { makeId } from './model';
 import { interviewQuestions } from './interview-content';
@@ -24,7 +25,7 @@ export function toggleInterviewChoice(question:Question,value:string,text:string
  const existing=value.split('\n').filter(v=>question.choices.some(c=>!c.exclusive&&c.text===v));
  return (existing.includes(text)?existing.filter(v=>v!==text):[...existing,text]).join('\n');
 }
-export type SituationRecord={version:2;id:string;date:string;type:SituationType|null;scenario:string|null;method:'direct'|'questions';body:string;answers:Record<string,string>;questionSnapshot:Question[];cursor:number;step:'type'|'scenario'|'input'|'question'|'preview'|'edit';status:'draft'|'saved';createdAt:string;updatedAt:string;savedAt:string|null;revision:number;edited:boolean;generated:string;legacyOriginal?:unknown};
+export type SituationRecord={aiSummary?:AISummary;version:2;id:string;date:string;type:SituationType|null;scenario:string|null;method:'direct'|'questions';body:string;answers:Record<string,string>;questionSnapshot:Question[];cursor:number;step:'type'|'scenario'|'input'|'question'|'preview'|'edit';status:'draft'|'saved';createdAt:string;updatedAt:string;savedAt:string|null;revision:number;edited:boolean;generated:string;legacyOriginal?:unknown};
 export function questionsFor(type:SituationType,scenario:string|null,answers:Record<string,string>={}):Question[]{return interviewQuestions(type,scenario,answers);}
 export function answerSituation(r:SituationRecord,id:string,text:string):SituationRecord{
  if(r.answers[id]===text)return r;

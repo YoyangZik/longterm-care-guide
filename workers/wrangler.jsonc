@@ -1,0 +1,10 @@
+{
+  "name": "care-diary-ai",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-04",
+  "workers_dev": true,
+  "observability": { "enabled": false },
+  "vars": { "CLAUDE_MODEL": "claude-haiku-4-5-20251001", "ALLOWED_ORIGIN": "", "DAILY_GLOBAL_LIMIT": "100" },
+  "durable_objects": { "bindings": [{ "name": "LIMITER", "class_name": "Limiter" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Limiter"] }]
+}

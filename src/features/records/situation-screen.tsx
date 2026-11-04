@@ -1,3 +1,4 @@
+import { AIRecordSummary } from './ai-controls';
 import { useNotifications } from '../notifications/provider';
 import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
 import { ActivityIndicator, AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -26,6 +27,7 @@ function Choice({title,description,selected,onPress,icon}:{title:string;descript
 }
 function BodyInput({value,onChange,label,placeholder,disabled}:{value:string;onChange:(text:string)=>void;label:string;placeholder:string;disabled:boolean}){return <TextInput accessibilityLabel={label} multiline textAlignVertical="top" maxLength={10000} value={value} onChangeText={onChange} placeholder={placeholder} editable={!disabled} placeholderTextColor={colors.muted} style={[styles.input,{minHeight:200,padding:18}]}/>;}
 export default function SituationScreen({inTab=false,draftsOnly=false}:{inTab?:boolean;draftsOnly?:boolean}){
+ const [headerHeight,setHeaderHeight]=useState(0);
  const session=useRef(dataGeneration());
  const saveSituation=useCallback((value:SituationRecord)=>dataTask(()=>persistSituation(value),session.current),[]);
  const params=useLocalSearchParams<{view?:string;draft?:string;day?:string;featured?:string}>();
@@ -67,8 +69,8 @@ export default function SituationScreen({inTab=false,draftsOnly=false}:{inTab?:b
 
  function typeCards(edit=false){return <View style={{flexDirection:'row',flexWrap:'wrap',gap:10}}>{situationTypes.map(t=><View key={t.id} style={{width:'100%'}}><Choice title={t.label} icon={t.icon} selected={r?.type===t.id} onPress={()=>{if(!r||blocked)return;if(edit)move({type:t.id,scenario:null});else change(chooseType(r,t.id));}}/></View>)}</View>;}
  return <SafeAreaView edges={inTab?['top','left','right']:['bottom','left','right']} style={styles.screen}>
-  {!inTab&&<Stack.Screen options={{headerShown:true,header:()=> <AppHeader title="" onBack={()=>void exit.request()} disabled={blocked}/>}}/>}
-  <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':'height'}><ScrollView ref={scroller} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content,{paddingBottom:32}]}>
+  {!inTab&&<Stack.Screen options={{headerShown:true,header:()=> <AppHeader title="" onHeightChange={setHeaderHeight} onBack={()=>void exit.request()} disabled={blocked}/>}}/>}
+  <KeyboardAvoidingView style={{flex:1}} keyboardVerticalOffset={headerHeight} behavior={Platform.OS==='ios'?'padding':'height'}><ScrollView ref={scroller} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={[styles.content,{flexGrow:1,paddingBottom:32}]}>
    {!!title&&<Text accessibilityRole="header" style={styles.title}>{title}</Text>}
    {!loaded?<>{error?<><Text accessibilityRole="alert" style={styles.notice}>{error}</Text><Action label="다시 불러오기" onPress={()=>void load()}/></>:<ActivityIndicator color={colors.green}/>}</>:inTab?<>
     <RecordsBrowser key={params.featured??'entry'} records={records} testing={testing} day={params.day} featured={params.featured} mode={params.day&&params.featured?'calendar':'entry'} onEntry={params.day&&params.featured?()=>router.setParams({day:undefined,featured:undefined}):undefined}/>
@@ -87,7 +89,7 @@ export default function SituationScreen({inTab=false,draftsOnly=false}:{inTab?:b
 <Action label={r.cursor===questions.length-1?'기록 미리보기':'다음'} disabled={blocked||!r.answers[q.id]?.trim()} onPress={()=>{if(r.cursor<questions.length-1)move({cursor:r.cursor+1});else preview();}}/></>:
      r.step==='edit'?<><Text style={styles.secondary}>{formatDay(r.date,true)}</Text>{r.status==='saved'&&<>{typeCards(true)}{r.type==='daily'&&scenarios.map(s=><Choice key={s.id} title={s.label} selected={r.scenario===s.id} onPress={()=>move({scenario:s.id})}/>)}</>}<BodyInput value={r.body} onChange={text=>move({body:text,edited:true})} label="기록 본문" placeholder="기록 본문" disabled={blocked}/><Action label="수정 내용 확인" disabled={blocked||!r.body.trim()||r.type==='daily'&&!r.scenario} onPress={()=>move({step:'preview'})}/></>:
      <><View style={styles.card}><View style={styles.row}><Text style={styles.label}>{viewing?'돌봄기록':'기록 미리보기'}</Text><Text style={styles.secondary}>{formatDay(r.date)}</Text></View><Text style={[styles.secondary,{color:colors.green}]}>{typeLabel(r.type!)}{r.scenario?`, ${scenarios.find(s=>s.id===r.scenario)?.label??''}`:''}</Text><Text selectable style={[styles.body,{fontSize:20,lineHeight:32}]}>{r.body}</Text>{r.method==='questions'&&<Text style={styles.secondary}>선택한 답변을 바탕으로 정리했어요.</Text>}</View>
-      {viewing?<><Action label="수정하기" secondary disabled={blocked} onPress={()=>{editingSaved.current=true;setViewing(false);move({step:'edit'});}}/><Action label="삭제하기" secondary disabled={blocked} onPress={()=>setDeleting(r)}/></>:<><Action label={busy?'저장 중…':'저장하기'} disabled={blocked||!r.body.trim()} onPress={()=>void save()}/><Action label="수정하기" secondary disabled={blocked} onPress={()=>move({step:'edit'})}/></>}
+      {viewing?<><AIRecordSummary record={r}/><Action label="수정하기" secondary disabled={blocked} onPress={()=>{editingSaved.current=true;setViewing(false);move({step:'edit'});}}/><Action label="삭제하기" secondary disabled={blocked} onPress={()=>setDeleting(r)}/></>:<><Action label={busy?'저장 중…':'저장하기'} disabled={blocked||!r.body.trim()} onPress={()=>void save()}/><Action label="수정하기" secondary disabled={blocked} onPress={()=>move({step:'edit'})}/></>}
      </>}
     {!!saveState&&<Text accessibilityLiveRegion="polite" style={styles.secondary}>{saveState}</Text>}
    </>:null}

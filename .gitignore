@@ -47,3 +47,8 @@ example
 # generated native folders
 /ios
 /android
+
+# Workers local secrets and generated state
+.dev.vars
+.dev.vars.*
+.wrangler/

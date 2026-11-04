@@ -1,5 +1,7 @@
 # Welcome to your Expo app 👋
 
+AI 요약, 기간별 보고서와 PDF 기능의 설정, Cloudflare Secret 등록 및 실제 기기 검증은 [AI 배포 안내](docs/ai-deployment.md)를 참고하세요. 앱에는 `EXPO_PUBLIC_AI_SERVER_URL`만 설정하며 Claude API 키는 Workers Secret에만 등록합니다.
+
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
 ## Get started
