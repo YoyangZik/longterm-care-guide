@@ -1,0 +1,9 @@
+import { View } from 'react-native';
+import { BrandIcon, type BrandIconName } from '@/components/brand-visuals';
+import { colors } from '@/design/tokens';
+import { preparationIcon } from './checklist';
+export { answerOptions } from './answer-options';
+export const detailTitles:Record<string,string>={'visit-questions':'방문조사 후 확인할 내용',eligibility:'신청 대상',method:'신청 방법',documents:'신청 서류',medical:'의사소견서',renewal:'갱신 시기',change:'등급변경 신청',reapply:'다시 신청하기',deadline:'제출기한', 'result-route':'결과 확인 방법',received:'받은 서류',services:'서비스 이용 준비',agency:'이용 기관 찾기',reason:'결과 사유',review:'다음 절차',identify:'결과 살펴보기','visit-check':'방문 일정과 동석','care-review':'돌봄 상황 정리'};
+export const itemQuestions:Record<string,string>={eligibility:'신청 대상인지 확인하셨나요?',method:'신청 방법을 알아보셨나요?',documents:'신청에 필요한 서류를 준비하셨나요?',medical:'의사소견서를 준비하셨나요?',renewal:'갱신 신청 시기를 확인하셨나요?',change:'등급변경 신청 절차를 알아보셨나요?',reapply:'다시 신청할 절차를 확인하셨나요?',deadline:'안내받은 제출기한을 확인하셨나요?','result-route':'결과를 확인할 방법을 알아보셨나요?',received:'받은 서류를 확인하셨나요?',services:'서비스 이용을 준비하고 계신가요?',agency:'이용할 기관을 알아보셨나요?',reason:'결과 사유를 확인하셨나요?',review:'다음 절차를 알아보셨나요?',identify:'받은 결과 내용을 살펴보셨나요?',clarify:'공단에 문의할 내용을 정리하셨나요?',consult:'문의할 내용을 정리하셨나요?','result-note':'안내받은 내용을 정리하셨나요?','agency-note':'기관에 물어볼 내용을 정리하셨나요?','review-note':'문의할 내용을 정리하셨나요?','visit-check':'일정과 동석 여부를 확인하셨나요?','care-review':'평소 돌봄 상황을 정리하셨나요?',requested:'안내받은 준비물을 준비하셨나요?','visit-questions':'방문조사 후 물어볼 내용을 정리하셨나요?'};
+const guideIcons: Record<string, BrandIconName>={description:'record',calendar_month:'calendar',chat:'chat',person:'person',medical_services:'medical',apartment:'building',help:'help'};
+export function GuideIcon({id='documents'}:{id?:string}){return <View accessible={false} style={{alignSelf:'flex-start',padding:18,borderRadius:22,backgroundColor:colors.pale}}><BrandIcon name={guideIcons[preparationIcon(id).web]} size={28} color={colors.green}/></View>;}
