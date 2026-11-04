@@ -4,7 +4,7 @@ import { validTime } from '../start/guidance-storage';
 export type Kind = 'care' | 'visit';
 export type Preference = { enabled: boolean; time: string; offered: boolean };
 export type Preferences = Record<Kind, Preference>;
-export type Plan = { id: string; kind: Kind; day: string; at: number; visitDate?: string };
+export type Plan = { id: string; kind: Kind; day: string; at: number; visitDate?: string; repeat?: 'daily' };
 export type Context = { stage: string | null; visitDate: string | null; visitCompleted: boolean; completedDays: string[] };
 export const defaults = (): Preferences => ({care:{enabled:false,time:'20:00',offered:false},visit:{enabled:false,time:'19:00',offered:false}});
 export const owner = 'care-diary-local-v1';
@@ -18,10 +18,10 @@ export function planNotifications(p: Preferences, context: Context, now: Date, c
     const date=atTime(context.visitDate,p.visit.time);date.setDate(date.getDate()-1);visitDay=localDate(date);
     if(date.getTime()>now.getTime()&&!consumed.includes(`visit:${visitDay}`))plans.push({id:`${owner}:visit:${date.getTime()}:${context.visitDate}`,kind:'visit',day:visitDay,at:date.getTime(),visitDate:context.visitDate});
   }
-  if(p.care.enabled&&validTime(p.care.time))for(let i=0;i<30;i++) {
-    const dayDate=new Date(now.getFullYear(),now.getMonth(),now.getDate()+i,12);const day=localDate(dayDate);const date=atTime(day,p.care.time);
-    if(date.getTime()<=now.getTime()||context.completedDays.includes(day)||consumed.includes(`care:${day}`)||day===visitDay)continue;
-    plans.push({id:`${owner}:care:${date.getTime()}`,kind:'care',day,at:date.getTime()});
+  if(p.care.enabled&&validTime(p.care.time)) {
+    const date=atTime(localDate(now),p.care.time);
+    if(date.getTime()<=now.getTime())date.setDate(date.getDate()+1);
+    plans.push({id:`${owner}:care:daily:${p.care.time}`,kind:'care',day:localDate(date),at:date.getTime(),repeat:'daily'});
   }
   return plans;
 }

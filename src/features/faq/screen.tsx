@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { AccessibilityInfo, Animated, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, Platform, Pressable, ScrollView, View } from 'react-native';
+import { ReadableText as Text } from '@/components/readable-text';
 import { router, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader } from '@/components/navigation/app-header';
@@ -20,12 +21,13 @@ export function FaqScreen({tab=false}:{tab?:boolean}){
    <Text accessibilityRole="header" style={styles.title}>자주 묻는 질문</Text>
    {faqGroups(stage??'before-application').map(group=>!!group.items.length&&<View key={group.title} style={{gap:4}}>
     <Text accessibilityRole="header" style={[styles.secondary,{fontWeight:'600',paddingVertical:8}]}>{group.title}</Text>
+    <View style={{backgroundColor:colors.surface,borderRadius:18,borderWidth:1,borderColor:colors.border,paddingHorizontal:16}}>
     {group.items.map(item=><View key={item.id} style={{borderBottomWidth:1,borderColor:colors.border}}>
      <Pressable accessibilityRole="button" accessibilityLabel={item.question} accessibilityState={{expanded:open===item.id}} aria-expanded={open===item.id} onPress={()=>setOpen(open===item.id?null:item.id)} style={({pressed})=>({minHeight:56,paddingVertical:16,flexDirection:'row',alignItems:'flex-start',gap:12,opacity:pressed?.7:1})}>
       <Text style={[styles.label,{flex:1}]}>{item.question}</Text><View style={{paddingTop:5,transform:[{rotate:open===item.id?'-90deg':'90deg'}]}}><BrandIcon name="next" size={18} color={colors.muted}/></View>
      </Pressable>
      {open===item.id&&<FaqAnswer item={item} reduceMotion={reduceMotion}/>}
-    </View>)}
+    </View>)}</View>
    </View>)}
   </ScrollView>
  </SafeAreaView>;

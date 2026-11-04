@@ -1,6 +1,7 @@
 import { BrandIcon } from './brand-visuals';
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
+import { ReadableText as Text } from '@/components/readable-text';
 import { colors, styles } from '@/design/styles';
 import { localDate, monthWeeks, shiftMonth } from '@/features/records/calendar';
 import { formatDay, formatMonth } from '@/features/records/display';
@@ -12,10 +13,10 @@ type Props = {
 export function MonthGrid({ month, date, onMonth, onDate, busy, records, datePurpose = '방문 날짜 선택' }: Props) {
   const { fontScale } = useWindowDimensions();
   const [available,setAvailable]=useState(0);
-  const column = Math.max(Math.ceil(36 * fontScale), available ? Math.min(64, (available - 16) / 7) : 48);
+  const column = Math.max(Math.ceil(40 * fontScale), available ? Math.min(64, (available - 8) / 7) : 48);
   const circle = Math.min(column - 2, Math.max(38, Math.ceil(36 * fontScale)));
   const today = localDate();
-  return <View onLayout={event=>setAvailable(event.nativeEvent.layout.width)} style={{ gap: 12, backgroundColor: colors.surface, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 8 }}>
+  return <View onLayout={event=>setAvailable(event.nativeEvent.layout.width)} style={{ gap: 12, backgroundColor: colors.surface, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 4 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
       <Pressable accessibilityRole="button" accessibilityLabel="이전 달" disabled={busy || month <= '1900-01'} onPress={() => onMonth(shiftMonth(month, -1))} style={styles.link}><BrandIcon name="back" color={colors.green} size={20}/></Pressable>
       <Text accessibilityRole="header" style={[styles.label, { flex: 1, textAlign: 'center' }]}>{formatMonth(month)}</Text>

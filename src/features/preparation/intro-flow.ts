@@ -54,4 +54,4 @@ export function nextIntro(stage:StageId,p:Preparation,i:IntroProgress):IntroProg
   if(['experience','purpose','result','opinion'].includes(i.node)||i.node.startsWith('ask:')){if(!value)throw new Error('Answer required');}
   return {...i,node,trail:[...i.trail.filter(n=>n!==i.node),i.node],scope:preparationScope(stage,p)};
 }
-export function previousIntro(i:IntroProgress){return !i.completed&&i.trail.length?{...i,node:i.trail.at(-1)!,trail:i.trail.slice(0,-1),completed:false}:i;}
+export function previousIntro(i:IntroProgress,reviewCompleted=false){return (!i.completed||reviewCompleted)&&i.trail.length?{...i,node:i.trail.at(-1)!,trail:i.trail.slice(0,-1),completed:false}:i;}

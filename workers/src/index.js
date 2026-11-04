@@ -1,7 +1,9 @@
 import {MAX_BYTES,validateInput,SYSTEM,instruction,validateOutput} from './protocol.js';
 import {parseAIResponse} from './writing.js';
 import {reportModelData} from './report-response.js';
-const json=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
+import {REPORT_OUTPUT_FORMAT} from './report-output-format.js';
+export const PROTOCOL_VERSION='2026-11-05.1';
+const json=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store','X-Care-Relay-Version':PROTOCOL_VERSION}});
 export async function digest(text){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text))),b=>b.toString(16).padStart(2,'0')).join('');}
 // A single durable object gives atomic global and per-user limits across isolates.
 // Only hashed identifiers and counters enter storage, never care records.
@@ -29,6 +31,8 @@ export default {
   if(origin&&!allowed)return json({error:'origin'},403);
   if(request.method==='OPTIONS')return cors(new Response(null,{status:204,headers:{'Access-Control-Allow-Methods':'POST','Access-Control-Allow-Headers':'Authorization, Content-Type'}}));
   try{
+   // Deployment identification only: no configuration, model, records or keys.
+   if(request.method==='GET'&&new URL(request.url).pathname==='/health')return cors(json({protocolVersion:PROTOCOL_VERSION,reportEvidence:'short-ids-and-all'}));
    const path=new URL(request.url).pathname;if(request.method!=='POST'||!['/summary','/report','/access/verify'].includes(path))return cors(json({error:'route'},404));
    if(!env.ACCESS_TOKEN_HASHES||path!=='/access/verify'&&(!env.ANTHROPIC_API_KEY||!env.CLAUDE_MODEL))return cors(json({error:'configuration'},503));
    const token=request.headers.get('Authorization')?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
@@ -42,7 +46,7 @@ export default {
    if(Number(request.headers.get('Content-Length'))>MAX_BYTES)return cors(json({error:'size'},413));
    let data;try{data=validateInput(path,await readBody(request));}catch(e){return cors(json({error:e instanceof RangeError?'size':'input'},e instanceof RangeError?413:400));}
    const modelInput=path==='/report'?reportModelData(data):{data,aliases:undefined};
-   const upstream=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':env.ANTHROPIC_API_KEY,'anthropic-version':'2026-10-21'},body:JSON.stringify({model:env.CLAUDE_MODEL,max_tokens:path==='/summary'?800:6000,system:SYSTEM+'\n'+instruction(path),messages:[{role:'user',content:JSON.stringify(modelInput.data)}]}),signal:AbortSignal.timeout(75000)});
+   const upstream=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':env.ANTHROPIC_API_KEY,'anthropic-version':'2026-10-21'},body:JSON.stringify({model:env.CLAUDE_MODEL,max_tokens:path==='/summary'?800:6000,system:SYSTEM+'\n'+instruction(path),...(path==='/report'?{output_config:{format:REPORT_OUTPUT_FORMAT}}:{}),messages:[{role:'user',content:JSON.stringify(modelInput.data)}]}),signal:AbortSignal.timeout(75000)});
    if(!upstream.ok){await upstream.body?.cancel();return cors(json({error:'upstream'},502));}
    const answer=await upstream.json();if(answer.stop_reason!=='end_turn')return cors(json({error:'incomplete'},answer.stop_reason==='max_tokens'?422:502));
    const text=answer.content?.filter(c=>c.type==='text').map(c=>c.text).join('');

@@ -1,5 +1,6 @@
+import { ReadableText as Text } from '../../components/readable-text';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AppState, Linking, Pressable, Switch, Text, View } from 'react-native';
+import { AppState, Linking, Pressable, Switch, View } from 'react-native';
 import { router, usePathname, useRootNavigationState } from 'expo-router';
 import { deviceStartRepository } from '../start/repository';
 import { useStart } from '../start/provider';
@@ -9,6 +10,7 @@ import { InfoDialog } from '@/components/navigation/overflow-menu';
 import { VisitTimePicker } from '@/components/visit-time-picker';
 import { Action } from '../records/ui';
 import { colors, styles } from '@/design/styles';
+import { controls } from '@/design/controls';
 import { BrandIcon } from '@/components/brand-visuals';
 import { formatClock } from '../records/display';
 import { visitKey } from '../start/guidance-storage';
@@ -17,7 +19,7 @@ import { claimOffer, readPreferences, reconcile, setPreference } from './service
 import { observe, supported } from './native';
 import { dataPaused } from '../reset/gate';
 
-type Value={preferences:Preferences;allowed:boolean;error:string;busy:boolean;offer:(kind:Kind)=>void;edit:(kind:Kind)=>void;toggle:(kind:Kind,enabled:boolean)=>void;refresh:()=>Promise<void>};
+type Value={preferences:Preferences;allowed:boolean;error:string;busy:boolean;offer:(kind:Kind)=>void;edit:(kind:Kind)=>void;toggle:(kind:Kind,enabled:boolean)=>void;refresh:()=>Promise<boolean|void>};
 const NotificationContext=createContext<Value|null>(null);
 export function NotificationProvider({children}:{children:ReactNode}) {
   const {stage,guidance,onboarded}=useStart();const {active:testing}=useFirstRunTest();
@@ -27,7 +29,7 @@ export function NotificationProvider({children}:{children:ReactNode}) {
   const active=useRef(!testing);
   useEffect(()=>()=>{active.current=false;},[]);
   useEffect(()=>{active.current=!testing;},[testing]);
-  const refresh=useCallback(async()=>{if(!active.current)return;try{const [records,snapshot]=await Promise.all([listSituations(),deviceStartRepository.load()]);if(!active.current)return;const result=await reconcile({stage:snapshot.stage,visitDate:snapshot.guidance.visit.date,visitCompleted:snapshot.guidance.visitChecked===visitKey(snapshot.guidance.visit),completedDays:records.filter(r=>r.status==='saved').map(r=>r.date)});if(!active.current)return;setPreferences(result.preferences);setAllowed(result.allowed);setError('');}catch{setError('알림 설정을 반영하지 못했어요. 다시 시도해주세요.');}},[]);
+  const refresh=useCallback(async()=>{if(!active.current)return;try{const [records,snapshot]=await Promise.all([listSituations(),deviceStartRepository.load()]);if(!active.current)return;const result=await reconcile({stage:snapshot.stage,visitDate:snapshot.guidance.visit.date,visitCompleted:snapshot.guidance.visitChecked===visitKey(snapshot.guidance.visit),completedDays:records.filter(r=>r.status==='saved').map(r=>r.date)});if(!active.current)return;setPreferences(result.preferences);setAllowed(result.allowed);setError('');return true;}catch{setError('알림 설정을 반영하지 못했어요. 다시 시도해주세요.');return false;}},[]);
   useEffect(()=>{if(testing)return;void Promise.resolve().then(refresh);const sub=AppState.addEventListener('change',state=>{if(state==='active')void refresh();});const unsub=subscribeSituations(()=>void refresh());const timer=setInterval(()=>void refresh(),60000);return()=>{sub.remove();unsub();clearInterval(timer);};},[testing,stage,guidance.visit.date,guidance.visit.time,guidance.visitChecked,refresh]);
   const [pendingTap,setPendingTap]=useState<{kind:unknown;date:unknown}|null>(null);const path=usePathname();const nav=useRootNavigationState();
   useEffect(()=>observe((kind,date)=>setPendingTap({kind,date})),[]);
@@ -55,12 +57,15 @@ export function NotificationSettings(){
   const disabled=test.active||n.busy||!supported;
   return <View style={{gap:8}}>
     <Text style={[styles.secondary,{fontWeight:'600'}]}>알림</Text>
+    <View style={[controls.group,{paddingVertical:0,paddingHorizontal:16,gap:0}]}>
     {(['care','visit'] as const).map((kind,index)=>{
       const preference=n.preferences[kind];const label=kind==='care'?'돌봄기록 알림':'방문조사 알림';
-      return <View key={kind} style={{paddingVertical:12,gap:8,borderTopWidth:index?1:0,borderColor:colors.border}}>
-        <View style={{flexDirection:'row',alignItems:'center',gap:16,minHeight:48}}>
-          <Text style={[styles.body,{flex:1,fontWeight:'600'}]}>{label}</Text>
-          <Switch accessibilityLabel={label} disabled={disabled} value={preference.enabled} onValueChange={enabled=>n.toggle(kind,enabled)} trackColor={{false:colors.border,true:colors.green}} ios_backgroundColor={colors.border}/>
+      return <View key={kind} style={{paddingVertical:4,gap:8,borderTopWidth:index?1:0,borderColor:colors.border}}>
+        <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:12,minHeight:48}}>
+          <View style={{flex:1,minWidth:0,justifyContent:'center'}}><Text style={[styles.body,{fontWeight:'600'}]}>{label}</Text></View>
+          <View style={{width:64,minHeight:48,flexShrink:0,alignItems:'center',justifyContent:'center'}}>
+           <Switch accessibilityLabel={label} disabled={disabled} value={preference.enabled} onValueChange={enabled=>n.toggle(kind,enabled)} style={{alignSelf:'center',flexShrink:0,margin:0}} trackColor={{false:colors.border,true:colors.green}} ios_backgroundColor={colors.border}/>
+          </View>
         </View>
         {preference.enabled&&<>
           <Pressable accessibilityRole="button" accessibilityLabel={label+' 시간 변경, '+formatClock(preference.time)} disabled={disabled} onPress={()=>n.edit(kind)} style={({pressed})=>({minHeight:48,flexDirection:'row',flexWrap:'wrap',alignItems:'center',justifyContent:'space-between',columnGap:12,rowGap:4,paddingVertical:8,opacity:disabled?.45:pressed?.65:1})}>
@@ -68,11 +73,12 @@ export function NotificationSettings(){
             <View style={{flexDirection:'row',alignItems:'center',gap:8,flexShrink:1}}><Text style={[styles.body,{flexShrink:1}]}>{kind==='care'?'매일':'전날'} {formatClock(preference.time)}</Text><BrandIcon name="next" size={18} color={colors.muted}/></View>
           </Pressable>
           {kind==='visit'&&(!guidance.visit.date||stage!=='awaiting-assessment')&&<Text style={styles.secondary}>방문 예정일을 정하면 알려드려요.</Text>}
+          {kind==='care'&&<Text style={styles.secondary}>앱을 오래 열지 않아도 매일 같은 시간에 알려드려요. 기록을 작성한 날에도 알림이 와요.</Text>}
           {!n.allowed&&supported&&<Text style={styles.secondary}>기기에서 알림이 허용되지 않아 현재 알림을 보낼 수 없어요.</Text>}
         </>}
       </View>;
-    })}
-    {!supported&&<Text style={styles.secondary}>로컬 알림은 iOS와 Android 앱에서 사용할 수 있어요.</Text>}
+    })}</View>
+    {!supported&&<Text style={styles.secondary}>알림은 휴대폰 앱에서만 지원해요.</Text>}
     {!n.allowed&&Object.values(n.preferences).some(p=>p.enabled)&&supported&&<Action label="기기 알림 설정 열기" secondary onPress={()=>void Linking.openSettings()}/>}
     {!!n.error&&<><Text accessibilityRole="alert" style={styles.notice}>{n.error}</Text><Action label="알림 설정 다시 확인" secondary onPress={()=>void n.refresh()}/></>}
   </View>;

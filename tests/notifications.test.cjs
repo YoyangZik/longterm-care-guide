@@ -12,30 +12,30 @@ const now=new Date(2030,0,10,10);
 test('opt-in only, one-time offer, no automatic permission request, restart and idempotent scheduling',async()=>{
  const f=fixture();let s=f.load('src/features/notifications/service.ts');await s.reconcile(context,now);assert.equal(f.pending.size,0);assert.ok(f.calls.permission.every(p=>!p));
  assert.equal(await s.claimOffer('care'),true);assert.equal(await s.claimOffer('care'),false);
- await s.setPreference('care',true,'20:00');await s.reconcile(context,now);assert.equal(f.pending.size,30);const count=f.calls.schedule;
+ await s.setPreference('care',true,'20:00');await s.reconcile(context,now);assert.equal(f.pending.size,1);assert.equal([...f.pending.values()][0].repeat,'daily');const count=f.calls.schedule;
  await s.reconcile(context,now);assert.equal(f.calls.schedule,count);assert.equal(f.calls.cancel.length,0);
  f.reload();s=f.load('src/features/notifications/service.ts');assert.equal(await s.claimOffer('care'),false);await s.reconcile(context,now);assert.equal(f.calls.schedule,count);
 });
-test('completed record cancels today only, drafts do not skip, elapsed days never reappear after time changes',async()=>{
+test('daily reminder remains after completed records, survives months without replenishment, and changes time without duplicates',async()=>{
  const f=fixture(),s=f.load('src/features/notifications/service.ts');await s.setPreference('care',true,'20:00');await s.reconcile(context,now);
- await s.reconcile({...context,completedDays:['2030-01-10']},now);assert.equal(f.pending.size,29);assert.equal([...f.pending.values()].some(p=>p.day==='2030-01-10'),false);
- await s.setPreference('care',true,'22:00');await s.reconcile(context,now);assert.equal([...f.pending.values()].some(p=>p.day==='2030-01-10'),false);
- await s.reconcile(context,new Date(2030,0,11,23));await s.setPreference('care',true,'23:30');await s.reconcile(context,new Date(2030,0,11,23));assert.equal([...f.pending.values()].some(p=>p.day==='2030-01-11'),false);
+ await s.reconcile({...context,completedDays:['2030-01-10']},now);assert.equal(f.pending.size,1);assert.equal([...f.pending.values()][0].repeat,'daily');
+ const old=[...f.pending.keys()][0];await s.setPreference('care',true,'22:00');await s.reconcile(context,now);assert.equal(f.pending.size,1);assert.ok(!f.pending.has(old));
+ const id=[...f.pending.keys()][0],count=f.calls.schedule;await s.reconcile(context,new Date(2030,3,11,23));assert.ok(f.pending.has(id));assert.equal(f.calls.schedule,count);
 });
 test('visit priority, rescheduling, deletion, completion, stage exit, past time and independent disable',async()=>{
  const f=fixture(),s=f.load('src/features/notifications/service.ts');await s.setPreference('care',true,'20:00');await s.setPreference('visit',true,'19:00');
- let c={...context,visitDate:'2030-01-11'};await s.reconcile(c,now);assert.equal([...f.pending.values()].filter(p=>p.day==='2030-01-10').map(p=>p.kind).join(),'visit');
+ let c={...context,visitDate:'2030-01-11'};await s.reconcile(c,now);assert.deepEqual([...f.pending.values()].filter(p=>p.day==='2030-01-10').map(p=>p.kind),['visit','care']);
  c={...c,visitDate:'2030-01-12'};await s.reconcile(c,now);assert.equal([...f.pending.values()].find(p=>p.day==='2030-01-10').kind,'care');assert.equal([...f.pending.values()].find(p=>p.day==='2030-01-11').kind,'visit');
  await s.setPreference('care',false,'20:00');await s.reconcile(c,now);assert.equal(f.pending.size,1);assert.equal([...f.pending.values()][0].kind,'visit');
  for(const altered of [{...c,visitDate:null},{...c,visitCompleted:true},{...c,stage:'awaiting-result'},{...c,visitDate:'2030-01-09'}]){await s.reconcile(altered,now);assert.equal(f.pending.size,0);}
  await s.setPreference('care',true,'20:00');await s.reconcile({...context,visitDate:'2030-01-11'},new Date(2030,0,10,21));assert.equal([...f.pending.values()].some(p=>p.day==='2030-01-10'),false);
 });
 test('permission revocation removes only owned schedules, recovery and reset preserve record storage',async()=>{
- const f=fixture(),s=f.load('src/features/notifications/service.ts');f.values.set('records','original bytes');await s.setPreference('care',true,'20:00');await s.reconcile(context,now);f.deny();await s.reconcile(context,now);assert.equal(f.pending.size,0);assert.equal((await s.readPreferences()).care.enabled,true);f.allow();await s.reconcile(context,now);assert.equal(f.pending.size,30);await s.resetNotifications();assert.equal(f.pending.size,0);assert.equal(f.values.get('records'),'original bytes');assert.equal((await s.readPreferences()).care.enabled,false);
+ const f=fixture(),s=f.load('src/features/notifications/service.ts');f.values.set('records','original bytes');await s.setPreference('care',true,'20:00');await s.reconcile(context,now);f.deny();await s.reconcile(context,now);assert.equal(f.pending.size,0);assert.equal((await s.readPreferences()).care.enabled,true);f.allow();await s.reconcile(context,now);assert.equal(f.pending.size,1);await s.resetNotifications();assert.equal(f.pending.size,0);assert.equal(f.values.get('records'),'original bytes');assert.equal((await s.readPreferences()).care.enabled,false);
 });
 test('local date arithmetic crosses month/year, visit absent does not suppress care, DST uses wall clock',()=>{
  const f=fixture(),p=f.load('src/features/notifications/planner.ts'),prefs=p.defaults();prefs.care.enabled=true;prefs.visit.enabled=true;
- const plans=p.planNotifications(prefs,{...context,visitDate:'2031-01-01'},new Date(2030,11,31,10));assert.equal(plans.find(p=>p.kind==='visit').day,'2030-12-31');assert.equal(plans.filter(p=>p.day==='2030-12-31').length,1);
+ const plans=p.planNotifications(prefs,{...context,visitDate:'2031-01-01'},new Date(2030,11,31,10));assert.equal(plans.find(p=>p.kind==='visit').day,'2030-12-31');assert.equal(plans.filter(p=>p.day==='2030-12-31').length,2);
  const next=p.planNotifications(prefs,context,new Date(2030,2,9,10));assert.ok(next.filter(p=>p.kind==='care').every(p=>new Date(p.at).getHours()===20));
 });
 test('notification routing defers while editing and routes stale visits only to current home',()=>{
@@ -43,5 +43,5 @@ test('notification routing defers while editing and routes stale visits only to 
 });
 test('DST and timezone changes rebuild wall-clock instants rather than adding 24 hours',()=>{
  const before=process.env.TZ;
- try{process.env.TZ='America/New_York';const f=fixture(),p=f.load('src/features/notifications/planner.ts');const prefs=p.defaults();prefs.care.enabled=true;const plans=p.planNotifications(prefs,context,new Date(2030,2,9,10));assert.equal(plans[1].at-plans[0].at,23*60*60*1000);assert.equal(new Date(plans[1].at).getHours(),20);const first=plans[0].id;process.env.TZ='Asia/Seoul';assert.notEqual(p.planNotifications(prefs,context,new Date(2030,2,9,10))[0].id,first);}finally{if(before===undefined)delete process.env.TZ;else process.env.TZ=before;}
+ try{process.env.TZ='America/New_York';const f=fixture(),p=f.load('src/features/notifications/planner.ts');const prefs=p.defaults();prefs.care.enabled=true;const plans=p.planNotifications(prefs,context,new Date(2030,2,9,10));const next=p.planNotifications(prefs,context,new Date(2030,2,10,10));assert.equal(next[0].at-plans[0].at,23*60*60*1000);assert.equal(new Date(next[0].at).getHours(),20);assert.equal(next[0].id,plans[0].id);process.env.TZ='Asia/Seoul';const moved=p.planNotifications(prefs,context,new Date(2030,2,9,10));assert.equal(new Date(moved[0].at).getHours(),20);assert.notEqual(moved[0].at,plans[0].at);}finally{if(before===undefined)delete process.env.TZ;else process.env.TZ=before;}
 });

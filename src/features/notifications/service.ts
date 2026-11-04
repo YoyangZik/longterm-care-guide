@@ -16,7 +16,7 @@ export function setPreference(kind:Kind,enabled:boolean,time:string){return seri
 export function reconcile(context:Context,now=new Date()){return serial(async()=>{
   const s=await read();const allowed=await native.permission();const existing=await native.scheduled();
   // Retain a delivered/elapsed day even after time changes or permission recovery.
-  for(const p of s.reservations)if(p.at<=now.getTime())s.consumed.push(`${p.kind}:${p.day}`);
+  for(const p of s.reservations)if(!p.repeat&&p.at<=now.getTime())s.consumed.push(`${p.kind}:${p.day}`);
   for(const day of context.completedDays)s.consumed.push(`care:${day}`);
   const cutoff=new Date(now.getFullYear(),now.getMonth(),now.getDate()-40,12);const cutoffDay=`${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;
   s.consumed=[...new Set(s.consumed)].filter(v=>v.slice(v.indexOf(':')+1)>=cutoffDay);

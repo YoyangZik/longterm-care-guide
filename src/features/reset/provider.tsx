@@ -7,8 +7,9 @@ import { rawStorage } from './storage';
 import { pauseData, resumeData } from './gate';
 import { createResetController } from './controller';
 import { clearNotificationsForReset } from '../notifications/service';
+import { clearPrivateAssets } from './private-assets';
 import { useLaunchReady } from '@/components/launch-splash';
-const controller=createResetController(rawStorage,clearNotificationsForReset);
+const controller=createResetController(rawStorage,clearNotificationsForReset,clearPrivateAssets);
 const Context=createContext<(()=>void)|null>(null);
 export function ResetProvider({children}:{children:ReactNode}){
  const [mode,setMode]=useState<'boot'|'ready'|'reset'|'failed'>('boot');const [session,setSession]=useState(0);const lock=useRef(false);

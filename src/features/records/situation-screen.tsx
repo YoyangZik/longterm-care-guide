@@ -1,7 +1,8 @@
 import { AIRecordSummary } from './ai-controls';
 import { useNotifications } from '../notifications/provider';
 import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
-import { ActivityIndicator, AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { ReadableText as Text } from '@/components/readable-text';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { BrandIcon, type BrandIconName } from '@/components/brand-visuals';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +18,8 @@ import { formatDay, formatTimestamp } from './display';
 import { answerSituation, chooseScenario, chooseType, confirmSituation, createSituation, generatedBody, hasSituationInput, previewSituation, questionsFor, scenarios, situationTypes, typeLabel, updateSituation, type SituationRecord } from './situation-model';
 import { deleteSituation, listSituations, saveSituation as persistSituation, subscribeSituations } from './situation-storage';
 import { dataGeneration, dataTask } from '../reset/gate';
+import { refreshAfterSave } from './save-followup';
+import { controls } from '@/design/controls';
 
 const situationIcons: Record<string, BrandIconName>={directions_walk:'walk',restaurant:'meal',psychology:'memory',bedtime:'moon',medical_services:'medical',edit_note:'edit',chat:'chat'};
 function Choice({title,description,selected,onPress,icon}:{title:string;description?:string;selected?:boolean;onPress:()=>void;icon?:typeof situationTypes[number]['icon']|{ios:'text.bubble';android:'chat';web:'chat'}}){
@@ -25,7 +28,8 @@ function Choice({title,description,selected,onPress,icon}:{title:string;descript
   <View style={{flex:1,gap:5}}><Text style={[styles.label,{fontSize:19,lineHeight:29}]}>{title}</Text>{description&&<Text style={styles.secondary}>{description}</Text>}</View><BrandIcon name={selected?'check':'next'} size={18} color={colors.green}/>
  </Pressable>;
 }
-function BodyInput({value,onChange,label,placeholder,disabled}:{value:string;onChange:(text:string)=>void;label:string;placeholder:string;disabled:boolean}){return <TextInput accessibilityLabel={label} multiline textAlignVertical="top" maxLength={10000} value={value} onChangeText={onChange} placeholder={placeholder} editable={!disabled} placeholderTextColor={colors.muted} style={[styles.input,{minHeight:200,padding:18}]}/>;}
+function BodyInput({value,onChange,label,placeholder,disabled}:{value:string;onChange:(text:string)=>void;label:string;placeholder:string;disabled:boolean}){return <View style={{gap:8}}><TextInput accessibilityLabel={label} multiline textAlignVertical="top" maxLength={10000} value={value} onChangeText={onChange} placeholder={placeholder} editable={!disabled} placeholderTextColor={colors.muted} style={[styles.input,{minHeight:200,padding:18}]}/>{value.length>=9000&&<Text accessibilityLiveRegion="polite" style={styles.secondary}>{value.length.toLocaleString()} / 10,000자{value.length>=10000?'\n입력 한도에 도달했어요. 붙여넣은 내용이 모두 들어갔는지 확인해주세요.':''}</Text>}</View>;}
+const examples:Record<string,string>={movement:'침대에서 일어나실 때 팔을 받쳐드렸어요.',daily:'점심은 혼자 드셨고, 식사 후 주변을 정리해드렸어요.',memory:'오늘 날짜를 물어보셔서 달력을 함께 확인했어요.',behavior:'밤에 잠에서 깨셔서 곁에 앉아 이야기를 나눴어요.',health:'손등이 건조하다고 하셔서 보습제를 발라드렸어요.',other:'외출 전에 필요한 물건을 함께 챙겼어요.'};
 export default function SituationScreen({inTab=false,draftsOnly=false}:{inTab?:boolean;draftsOnly?:boolean}){
  const [headerHeight,setHeaderHeight]=useState(0);
  const session=useRef(dataGeneration());
@@ -36,6 +40,7 @@ export default function SituationScreen({inTab=false,draftsOnly=false}:{inTab?:b
  const [records,setRecords]=useState<SituationRecord[]>([]),[loaded,setLoaded]=useState(false),[error,setError]=useState('');
  const [record,setRecord]=useState<SituationRecord|null>(null),[busy,setBusy]=useState(false),[entry,setEntry]=useState(true),[viewing,setViewing]=useState(false);
  const [deleting,setDeleting]=useState<SituationRecord|null>(null),[conflict,setConflict]=useState(false),[saveState,setSaveState]=useState('');
+ const [unsaved,setUnsaved]=useState(false);
  const current=useRef<SituationRecord|null>(null),timer=useRef<ReturnType<typeof setTimeout>|null>(null),lock=useRef(false),editingSaved=useRef(false),hydrated=useRef(''),scroller=useRef<ComponentRef<typeof ScrollView>>(null);
  const clearTimer=()=>{if(timer.current){clearTimeout(timer.current);timer.current=null;}};
  const flush=useCallback(async()=>{if(timer.current){clearTimeout(timer.current);timer.current=null;}if(current.current&&!editingSaved.current){await saveSituation(current.current);setSaveState('');}},[saveSituation]);
@@ -57,11 +62,20 @@ export default function SituationScreen({inTab=false,draftsOnly=false}:{inTab?:b
   else move({step:r.type==='daily'?'scenario':'type'});
  }
  const exitsRoute=!record||viewing;
- const exit=useSafeExit({enabled:!inTab,leavesRoute:exitsRoute,save:flush,leave:back});
+ const exit=useSafeExit({enabled:!inTab,leavesRoute:exitsRoute,blockedBy:()=>{if(busy)return true;const old=records.find(row=>row.id===current.current?.id);if(editingSaved.current&&old&&current.current&&(old.body!==current.current.body||old.type!==current.current.type||old.scenario!==current.current.scenario)){setUnsaved(true);return true;}return false;},save:flush,leave:back});
  const blocked=busy||exit.blocked;
  async function start(method:SituationRecord['method']){if(lock.current)return;lock.current=true;setBusy(true);try{const next=createSituation(method);await saveSituation(next);editingSaved.current=false;current.current=next;hydrated.current=next.id;setRecord(next);setEntry(false);setViewing(false);}catch{setError('기록을 시작하지 못했어요. 다시 시도해주세요.');}finally{lock.current=false;setBusy(false);}}
  function preview(){const r=current.current;if(!r)return;try{change(previewSituation(r));}catch(e){if(e instanceof Error&&e.message==='Edited body conflict')setConflict(true);else setError('유형과 상황을 먼저 선택해주세요.');}}
- async function save(){if(lock.current||!current.current)return;lock.current=true;setBusy(true);clearTimer();try{const next=confirmSituation(current.current);const saved=await saveSituation(next);current.current=null;setRecord(null);editingSaved.current=false;await notifications.refresh();exit.finishSaved(()=>router.dismissTo({pathname:'/record',params:{day:saved.date,featured:saved.id}}));notifications.offer('care');}catch{setError('저장하지 못했어요. 작성 내용은 유지돼요. 다시 눌러주세요.');}finally{lock.current=false;setBusy(false);}}
+ async function save(){
+  if(lock.current||!current.current)return;lock.current=true;setBusy(true);clearTimer();
+  let saved:SituationRecord;
+  try{saved=await saveSituation(confirmSituation(current.current));}
+  catch{setError('저장하지 못했어요. 작성 내용은 유지돼요. 다시 눌러주세요.');lock.current=false;setBusy(false);return;}
+  current.current=null;setRecord(null);editingSaved.current=false;
+  const refreshed=await refreshAfterSave(notifications.refresh);
+  exit.finishSaved(()=>router.dismissTo({pathname:'/records-review',params:{day:saved.date,featured:saved.id,notificationWarning:refreshed?undefined:'1'}}));
+  notifications.offer('care');lock.current=false;setBusy(false);
+ }
  async function remove(){if(lock.current||!deleting)return;lock.current=true;setBusy(true);clearTimer();try{await deleteSituation(deleting.id);const wasOpen=current.current?.id===deleting.id;setDeleting(null);if(wasOpen){current.current=null;setRecord(null);exit.finishSaved(()=>router.dismissTo('/record'));}await load();}catch{setError('삭제하지 못했어요. 기존 기록은 유지돼요.');}finally{lock.current=false;setBusy(false);}}
  const drafts=records.filter(r=>r.status==='draft').sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
  const r=record;const questions=r?.type?questionsFor(r.type,r.scenario,r.answers):[];const q=r?questions[r.cursor]:undefined;
@@ -84,12 +98,12 @@ export default function SituationScreen({inTab=false,draftsOnly=false}:{inTab?:b
    </>:r?<>
     {r.step==='type'?<><Text style={styles.body}>어떤 상황을 기록할까요?</Text>{typeCards()}<Action label="다음" disabled={blocked||!r.type} onPress={()=>move({step:r.type==='daily'?'scenario':r.method==='direct'?'input':'question'})}/></>:
      r.step==='scenario'?<><Text style={styles.label}>어떤 상황이었나요?</Text>{scenarios.map(s=><Choice key={s.id} title={s.label} selected={r.scenario===s.id} onPress={()=>{if(!blocked)change(chooseScenario(r,s.id));}}/>)}<Action label="다음" disabled={blocked||!r.scenario} onPress={()=>move({step:r.method==='direct'?'input':'question'})}/></>:
-     r.step==='input'?<><Text style={[styles.label,{color:colors.green}]}>{typeLabel(r.type!)}</Text><Text style={styles.body}>어떤 일이 있었고 어떻게 도와드렸나요?</Text><BodyInput value={r.body} onChange={text=>move({body:text})} label="기록 본문" placeholder="있었던 일과 직접 도와드린 내용을 적어주세요" disabled={blocked}/><Text style={styles.secondary}>예: 아침에 식기를 준비해드렸어요.</Text><Action label="기록 확인" disabled={blocked||!r.body.trim()} onPress={preview}/></>:
+     r.step==='input'?<><Text style={[styles.label,{color:colors.green}]}>{typeLabel(r.type!)}</Text><Text style={styles.body}>어떤 일이 있었고 어떻게 도와드렸나요?</Text><BodyInput value={r.body} onChange={text=>move({body:text})} label="기록 본문" placeholder="있었던 일과 직접 도와드린 내용을 적어주세요" disabled={blocked}/><Text style={styles.secondary}>예: {examples[r.type!]??examples.other}</Text><Action label="기록 확인" disabled={blocked||!r.body.trim()} onPress={preview}/></>:
      r.step==='question'&&q?<><View style={styles.row}><Text style={[styles.secondary,styles.standalone,{color:colors.green}]}>{typeLabel(r.type!)}</Text><Text style={[styles.secondary,styles.standalone]}>{r.cursor+1} / {questions.length}</Text></View><Text accessibilityRole="header" style={styles.title}>{q.prompt}</Text><Text style={styles.secondary}>{q.hint}</Text><InterviewQuestion key={q.id} question={q} value={r.answers[q.id]??''} detail={r.answers[`${q.id}:detail`]??''} disabled={blocked} onAnswer={text=>change(answerSituation(r,q.id,text))} onDetail={text=>move({answers:{...r.answers,[`${q.id}:detail`]:text},questionSnapshot:questions})}/>
 <Action label={r.cursor===questions.length-1?'기록 미리보기':'다음'} disabled={blocked||!r.answers[q.id]?.trim()} onPress={()=>{if(r.cursor<questions.length-1)move({cursor:r.cursor+1});else preview();}}/></>:
      r.step==='edit'?<><Text style={styles.secondary}>{formatDay(r.date,true)}</Text>{r.status==='saved'&&<>{typeCards(true)}{r.type==='daily'&&scenarios.map(s=><Choice key={s.id} title={s.label} selected={r.scenario===s.id} onPress={()=>move({scenario:s.id})}/>)}</>}<BodyInput value={r.body} onChange={text=>move({body:text,edited:true})} label="기록 본문" placeholder="기록 본문" disabled={blocked}/><Action label="수정 내용 확인" disabled={blocked||!r.body.trim()||r.type==='daily'&&!r.scenario} onPress={()=>move({step:'preview'})}/></>:
      <><View style={styles.card}><View style={styles.row}><Text style={styles.label}>{viewing?'돌봄기록':'기록 미리보기'}</Text><Text style={styles.secondary}>{formatDay(r.date)}</Text></View><Text style={[styles.secondary,{color:colors.green}]}>{typeLabel(r.type!)}{r.scenario?`, ${scenarios.find(s=>s.id===r.scenario)?.label??''}`:''}</Text><Text selectable style={[styles.body,{fontSize:20,lineHeight:32}]}>{r.body}</Text>{r.method==='questions'&&<Text style={styles.secondary}>선택한 답변을 바탕으로 정리했어요.</Text>}</View>
-      {viewing?<><AIRecordSummary record={r}/><Action label="수정하기" secondary disabled={blocked} onPress={()=>{editingSaved.current=true;setViewing(false);move({step:'edit'});}}/><Action label="삭제하기" secondary disabled={blocked} onPress={()=>setDeleting(r)}/></>:<><Action label={busy?'저장 중…':'저장하기'} disabled={blocked||!r.body.trim()} onPress={()=>void save()}/><Action label="수정하기" secondary disabled={blocked} onPress={()=>move({step:'edit'})}/></>}
+      {viewing?<><AIRecordSummary record={r}/><Action label="수정하기" secondary disabled={blocked} onPress={()=>{editingSaved.current=true;setViewing(false);move({step:'edit'});}}/><Pressable accessibilityRole="button" disabled={blocked} accessibilityState={{disabled:blocked}} style={controls.danger} onPress={()=>setDeleting(r)}><Text style={controls.dangerText}>삭제하기</Text></Pressable></>:<><Action label={busy?'저장 중…':'저장하기'} disabled={blocked||!r.body.trim()} onPress={()=>void save()}/><Action label="수정하기" secondary disabled={blocked} onPress={()=>move({step:'edit'})}/></>}
      </>}
     {!!saveState&&<Text accessibilityLiveRegion="polite" style={styles.secondary}>{saveState}</Text>}
    </>:null}
@@ -98,5 +112,6 @@ export default function SituationScreen({inTab=false,draftsOnly=false}:{inTab?:b
   <InfoDialog visible={!!deleting} title="이 기록을 삭제할까요?" onClose={()=>{if(!busy)setDeleting(null);}} actions={[{label:'취소',secondary:true,disabled:busy,onPress:()=>setDeleting(null)},{label:busy?'삭제 중…':'삭제하기',disabled:busy,onPress:()=>void remove()}]}><Text style={styles.body}>선택한 기록만 삭제돼요. 삭제한 기록은 복구할 수 없어요.</Text></InfoDialog>
   <InfoDialog visible={conflict} title="수정한 본문을 어떻게 할까요?" onClose={()=>setConflict(false)} actions={[{label:'본문 유지',secondary:true,onPress:()=>{setConflict(false);if(current.current)change(updateSituation(current.current,{generated:generatedBody(current.current),step:'preview'}));}},{label:'다시 정리',onPress:()=>{setConflict(false);if(current.current)change(previewSituation(current.current,true));}}]}><Text style={styles.body}>직접 수정한 본문을 유지하거나, 바뀐 답변으로 다시 정리할 수 있어요.</Text></InfoDialog>
   <ExitFailureDialog visible={exit.failed} onContinue={exit.keepEditing} onDiscard={exit.discard}/>
+  <InfoDialog visible={unsaved} title="변경사항을 저장하지 않고 나갈까요?" onClose={()=>setUnsaved(false)} actions={[{label:'계속 수정하기',onPress:()=>setUnsaved(false)},{label:'저장하지 않고 나가기',secondary:true,onPress:()=>{setUnsaved(false);exit.discard();}}]}><Text style={styles.body}>기존에 저장한 원본 기록은 그대로 유지돼요.</Text></InfoDialog>
  </SafeAreaView>;
 }

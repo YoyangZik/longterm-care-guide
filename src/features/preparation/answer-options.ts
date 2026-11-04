@@ -8,7 +8,7 @@ const uncertainty:Record<string,string>={
 };
 export function answerOptions(id:string,stage:StageId):Record<string,string>{
  const done=completionVerb(id,stage);
- const options:Record<string,string>={done,todo:done==='확인했어요'?'아직 확인하지 않았어요':done==='제출했어요'?'아직 제출 전이에요':'준비 중이에요'};
+ const options:Record<string,string>={done,todo:done==='확인했어요'?'아직 확인하지 않았어요':done==='제출했어요'?'아직 제출 전이에요':'아직 준비를 마치지 않았어요'};
  if(uncertainty[id])options.unknown=id==='medical'&&stage==='awaiting-result'?'제출 여부를 아직 확인하지 못했어요':uncertainty[id];
  return options;
 }

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { ReadableText as Text } from '@/components/readable-text';
 import { colors, styles } from '@/design/styles';
 
 export function SelectionRow({ label, description, selected = false, disabled = false, onPress }: { label: string; description?:string; selected?: boolean; disabled?: boolean; onPress: () => void }) {

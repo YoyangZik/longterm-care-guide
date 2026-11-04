@@ -1,5 +1,6 @@
 import type { StageId } from '../trial/stages';
-import { initialIntro, introItems } from './intro-flow';
+import { initialIntro } from './intro-flow';
+import { preparationItems } from './content';
 import { entryKey, preparationScope, setSurveyEntry, type Preparation, type IntroProgress, type Purpose, type Result, type EntryStatus } from './model';
 import { beginCompletionGuide } from './completion-flow';
 import { getMedical, migrateMedical, setMedicalDeadline, setMedicalStatus, type MedicalStatus } from '../medical/model';
@@ -15,29 +16,35 @@ export function syncSurveyFacts(p:Preparation,includeUnknown=false){
 export function personalization(stage:StageId,p:Preparation):IntroProgress{
  const saved=initialIntro(stage,p);
  if(saved.completed)return saved;
- const first=personalizationItems(stage,p)[0];
+ const items=personalizationItems(stage,p,saved),first=items[0];
  let node=saved.node==='lead'?(first?`ask:${first.id}`:'finish'):saved.node.startsWith('help:')?`ask:${saved.node.slice(5)}`:saved.node;
  const medical=getMedical(p);
  if(stage==='awaiting-result'&&saved.node==='lead'&&medical.status==='preparing'&&!medical.deadline&&!medical.deadlineAsked&&!medical.needsConfirmation)node='medical-deadline';
  if(node==='opinion'&&medical.status!=='unanswered'&&!medical.needsConfirmation&&!saved.answers.opinion)node=medical.status==='preparing'&&!medical.deadline&&!medical.deadlineAsked?'medical-deadline':first?`ask:${first.id}`:'finish';
- if(node.startsWith('ask:')&&!personalizationItems(stage,p).some(item=>item.id===node.slice(4)))node=first?`ask:${first.id}`:'finish';
- return {...saved,node,trail:saved.trail.filter(n=>n!=='lead'&&!n.startsWith('help:')&&(!n.startsWith('ask:')||personalizationItems(stage,p).some(item=>item.id===n.slice(4))))};
+ if(node.startsWith('ask:')&&!items.some(item=>item.id===node.slice(4)))node=first?`ask:${first.id}`:'finish';
+ return {...saved,node,trail:saved.trail.filter(n=>n!=='lead'&&!n.startsWith('help:')&&(!n.startsWith('ask:')||items.some(item=>item.id===n.slice(4))))};
 }
 export function advancePersonalization(stage:StageId,p:Preparation,i:IntroProgress):IntroProgress{
  const value=i.answers[i.node];let node:string;
- const items=personalizationItems(stage,p);
+ const items=personalizationItems(stage,p,i);
  const nextQuestion=(index:number)=>items[index]?`ask:${items[index].id}`:'finish';
  if(i.node==='experience')node=value==='previous'?'purpose':nextQuestion(0);
- else if(i.node==='opinion'){const m=getMedical(p);node=m.status==='preparing'&&!m.deadline&&!m.deadlineAsked?'medical-deadline':nextQuestion(0);}
+ else if(i.node==='opinion'){const m=getMedical(p);node=m.status==='preparing'&&(Object.hasOwn(i.answers,'medical-deadline')||!m.deadline&&!m.deadlineAsked)?'medical-deadline':nextQuestion(0);}
  else if(['purpose','result','medical-deadline'].includes(i.node))node=nextQuestion(0);
  else if(i.node.startsWith('ask:'))node=nextQuestion(items.findIndex(item=>item.id===i.node.slice(4))+1);
  else node='finish';
  if((['experience','purpose','result','opinion'].includes(i.node)||i.node.startsWith('ask:'))&&!value)throw new Error('Answer required');
- return {...i,node,completed:node==='finish',trail:node==='finish'?[]:[...i.trail.filter(n=>n!==i.node),i.node]};
+ return {...i,node,completed:node==='finish',trail:[...i.trail.filter(n=>n!==i.node),i.node]};
 }
-function personalizationItems(stage:StageId,p:Preparation){
+function personalizationItems(stage:StageId,p:Preparation,progress:IntroProgress){
  const scope=preparationScope(stage,p);
- return introItems(stage,p).filter(item=>{const entry=p.entries[entryKey(scope,item.id)];return item.id!=='medical'&&!(entry&&entry.source!=='survey'&&entry.status==='done');});
+ const visited=new Set(progress.scope===scope?[progress.node,...progress.trail,...Object.keys(progress.answers)]:[]);
+ return preparationItems(stage,p).filter(item=>{
+  if(item.id==='medical')return false;
+  if(visited.has(`ask:${item.id}`))return true;
+  const entry=p.entries[entryKey(scope,item.id)];
+  return entry?.status!=='na'&&!(entry&&entry.source!=='survey'&&entry.status==='done');
+ }).sort((a,b)=>Number(a.optional)-Number(b.optional));
 }
 export function finishPersonalization(p:Preparation,stage:StageId,i:IntroProgress,existingGuideHistory=false):Preparation{
  const next={...p,intros:{...p.intros,[stage]:i},setup:{...p.setup,[stage]:i.completed},recordIntroduced:{...p.recordIntroduced,[stage]:i.completed}};
@@ -62,5 +69,6 @@ export function savePersonalizationDeadline(stage:StageId,p:Preparation,date:str
  const current=personalization(stage,p);
  if(current.node!=='medical-deadline')throw new Error('Not on medical deadline question');
  const updated=setMedicalDeadline(p,date);
- return finishPersonalization(updated,stage,advancePersonalization(stage,updated,current),existingGuideHistory);
+ const answered={...current,answers:{...current.answers,'medical-deadline':date??'unknown'}};
+ return finishPersonalization(updated,stage,advancePersonalization(stage,updated,answered),existingGuideHistory);
 }

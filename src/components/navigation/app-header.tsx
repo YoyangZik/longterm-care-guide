@@ -1,7 +1,8 @@
 import { DialogActions } from '../action-controls';
 import type { ReactNode } from 'react';
 import { BrandIcon } from '@/components/brand-visuals';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, View } from 'react-native';
+import { ReadableText as Text } from '@/components/readable-text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, styles } from '@/features/onboarding/styles';
 export function AppHeader({ title, onBack, right, onHeightChange, disabled = false }: { title: string; onBack?: () => void; right?: ReactNode; onHeightChange?: (height:number)=>void; disabled?: boolean }) {

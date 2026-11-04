@@ -1,10 +1,11 @@
 import Storage from '../reset/storage';
-import { assertDataSession, dataGeneration } from '../reset/gate';
+import { assertDataSession, dataGeneration, dataTask } from '../reset/gate';
 import { listSituations, patchSituationAI } from './situation-storage';
 import { evidence, fingerprint, validateSections, type CareReport, type EvidenceRecord } from './ai-model';
 import { validDate } from './calendar';
 import { situationTypes } from './situation-model';
 import { makeId } from './model';
+import type { ReportPhase } from './report-progress-state';
 const consentKey='care-diary:ai-consent:v1';
 const reportsKey='care-diary:ai-reports:v1';
 const credentialKey='care-diary-ai-access';
@@ -29,13 +30,13 @@ export async function setAccessCode(code:string){
   if(!response.ok){const messages:Record<number,string>={401:'접근 코드가 올바르지 않거나 사용이 중지됐어요. 코드를 확인한 뒤 다시 입력해주세요.',403:'이 앱에서 서버에 접근할 수 없어요. 관리자에게 서버 접근 설정을 확인해주세요.',404:'서버에 접근 코드 확인 기능이 없어요. 관리자가 중계 서버를 업데이트해야 해요.',429:'코드 확인 요청이 많아요. 잠시 후 다시 시도해주세요.',503:'서버의 접근 코드 설정이 완료되지 않았어요. 관리자에게 문의해주세요.'};throw new Error(messages[response.status]??'서버에서 코드를 확인하지 못했어요. 잠시 후 다시 시도해주세요.');}
   const result=await response.json();if(result?.valid!==true)throw new Error('서버에서 코드 확인 결과를 받지 못했어요. 중계 서버 설정을 확인해주세요.');
   assertDataSession(session);if(!await hasConsent())throw new Error('AI 이용 동의가 철회되어 등록하지 않았어요.');
-  await (await credentials()).setCode(credentialKey,value);
+  const store=await credentials();await dataTask(()=>store.setCode(credentialKey,value),session);
   settingsChanged();
  }catch(e){if(e instanceof Error&&e.name==='AbortError')throw new Error('서버 응답이 늦어 코드를 확인하지 못했어요. 다시 시도해주세요.');if(e instanceof TypeError)throw new Error('인터넷 연결을 확인해주세요. 접근 코드는 아직 등록하지 않았어요.');throw e;}finally{clearTimeout(timer);}
 }
 export async function clearAccess(){await consent(false);await deleteAccessCode();}
 function utf8Length(text:string){let bytes=0;for(const c of text){const n=c.codePointAt(0)!;bytes+=n<=0x7f?1:n<=0x7ff?2:n<=0xffff?3:4;}return bytes;}
-async function request(path:string,data:{records:EvidenceRecord[];from?:string;to?:string},session=dataGeneration()){
+async function request(path:string,data:{records:EvidenceRecord[];from?:string;to?:string},session=dataGeneration(),onSend?:()=>void){
  if(!await hasConsent())throw new Error('외부 AI 전송에 먼저 동의해주세요.');
  if(!/^https:\/\//.test(serverURL))throw new Error('AI 중계 서버가 설정되지 않았어요.');
  const code=await (await credentials()).getCode(credentialKey);if(!code)throw new Error('개별 접근 코드를 먼저 등록해주세요.');
@@ -45,7 +46,7 @@ async function request(path:string,data:{records:EvidenceRecord[];from?:string;t
  if(!await hasConsent())throw new Error('AI 이용 동의가 철회되었어요.');
  assertDataSession(session);
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),90000);
- try{const response=await fetch(serverURL+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+code},body,signal:controller.signal});
+ try{onSend?.();const response=await fetch(serverURL+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+code},body,signal:controller.signal});
   if(!response.ok){
    const messages:Record<number,string>={400:'서버가 기록의 날짜, 유형 또는 요청 형식을 확인하지 못했어요. 원본은 유지돼요.',401:'접근 코드가 유효하지 않아요. 관리자에게 확인해주세요.',403:'앱의 서버 접근이 차단됐어요. 서버의 허용 주소 설정을 확인해주세요.',404:'AI 요청 주소를 찾지 못했어요. 중계 서버 주소와 배포 상태를 확인해주세요.',413:'전체 기록이 처리 한도를 넘었어요. 더 짧은 기간을 선택해주세요. 원문은 잘라 보내지 않았어요.',422:'AI 응답 길이 한도를 넘어 끝까지 생성하지 못했어요. 더 짧은 기간을 선택해주세요. 원본은 유지돼요.',429:'호출 한도에 도달했어요. 잠시 뒤 다시 시도해주세요.',503:'AI 서버 설정을 확인해야 해요.'};
    // Interpret only known safe codes, never display provider bodies or arbitrary server text.
@@ -79,10 +80,10 @@ async function request(path:string,data:{records:EvidenceRecord[];from?:string;t
     'report-count':'AI 보고서에 근거 기록에 없는 횟수나 수치가 추가됐어요.',
     'report-grade':'AI 보고서에 장기요양등급을 예측하는 표현이 있어요.',
     'response-json':'AI가 지정된 응답 형식으로 결과를 반환하지 않았어요.',
-    'response-schema':'AI 응답의 필수 항목이나 보고서 근거 ID를 확인하지 못했어요.',
+    'response-schema':'AI가 보낸 내용을 보고서나 요약으로 정리하지 못했어요. 문제가 계속되면 관리자에게 문의해주세요.',
    };
    const validationMessage=reason==='invalid-output'&&typeof detail==='string'?validationReasons[detail]:undefined;
-   throw new Error(messages[response.status]??(validationMessage?validationMessage+' 원본은 유지돼요. 다시 생성해주세요.':typeof reason==='string'?reasons[reason]:undefined)??`AI 서버 오류가 발생했어요 (HTTP ${response.status}). 원본은 유지돼요.`);
+   throw new Error(messages[response.status]??(validationMessage?validationMessage+(detail==='response-schema'?' 원본은 유지돼요.':' 원본은 유지돼요. 다시 생성해주세요.'):typeof reason==='string'?reasons[reason]:undefined)??`AI 서버 오류가 발생했어요 (HTTP ${response.status}). 원본은 유지돼요.`);
   }
   return await response.json();
  }catch(e){if(e instanceof Error&&e.name==='AbortError')throw new Error('AI 응답 시간이 초과되었어요. 다시 시도해주세요.');if(e instanceof TypeError)throw new Error('인터넷 연결을 확인한 뒤 다시 시도해주세요. 원본은 저장되어 있어요.');throw e;}finally{clearTimeout(timer);}
@@ -107,36 +108,45 @@ export async function summarizeRecord(id:string){
   try{assertDataSession(session);const latest=(await listSituations()).find(r=>r.id===id&&r.status==='saved');if(identity&&latest&&fingerprint(latest)!==identity)void summarizeRecord(id);}catch{/* reset wins */}
  }
 }
-export async function listReports():Promise<CareReport[]>{
- const raw=await Storage.getItem(reportsKey);const data=raw?JSON.parse(raw):[];
- if(!Array.isArray(data))throw new Error('Invalid report storage');
- const ids=new Set<string>();
+async function readReportStorage(){
+ const raw=await Storage.getItem(reportsKey);let data;
+ try{data=raw===null?[]:JSON.parse(raw);if(!Array.isArray(data))throw new Error();}
+ catch{throw new Error('저장된 보고서 목록을 읽지 못했어요. 기존 자료는 유지돼요. 다시 불러와주세요.');}
+ const ids=new Set<string>(),reports:CareReport[]=[];let invalidCount=0;
  for(const p of data){
+  try{
   if(!p||typeof p.id!=='string'||ids.has(p.id)||!validDate(p.from)||!validDate(p.to)||p.from>p.to||!Number.isFinite(Date.parse(p.createdAt))||!Array.isArray(p.records)||!p.records.length||p.records.length>300)throw new Error('Invalid report storage');
-  ids.add(p.id);const records=new Set<string>();for(const r of p.records){if(!r||typeof r.id!=='string'||records.has(r.id)||!validDate(r.date)||r.date<p.from||r.date>p.to||!situationTypes.some(t=>t.id===r.type)||typeof r.body!=='string')throw new Error('Invalid evidence storage');records.add(r.id);}
+  const records=new Set<string>();for(const r of p.records){if(!r||typeof r.id!=='string'||records.has(r.id)||!validDate(r.date)||r.date<p.from||r.date>p.to||!situationTypes.some(t=>t.id===r.type)||typeof r.body!=='string')throw new Error('Invalid evidence storage');records.add(r.id);}
   validateSections(p.sections,p.records);
+  ids.add(p.id);reports.push(p);
+  }catch{invalidCount++;}
  }
- return data;
+ // Keep unreadable entries in storage. Never use the display list to rewrite it.
+ return {entries:data as unknown[],reports,invalidCount};
 }
+export async function readReportLibrary(){const {reports,invalidCount}=await readReportStorage();return {reports,invalidCount};}
+export async function listReports():Promise<CareReport[]>{return (await readReportLibrary()).reports;}
 let reportQueue:Promise<unknown>=Promise.resolve();let reportBusy=false;
 export function deleteReport(id:string){
  const session=dataGeneration();
- const remove=reportQueue.then(async()=>{assertDataSession(session);const reports=await listReports();assertDataSession(session);await Storage.setItem(reportsKey,JSON.stringify(reports.filter(report=>report.id!==id)));});
+ const remove=reportQueue.then(async()=>{assertDataSession(session);const {entries,reports}=await readReportStorage();const target=reports.find(report=>report.id===id);assertDataSession(session);await Storage.setItem(reportsKey,JSON.stringify(entries.filter(entry=>entry!==target)));});
  reportQueue=remove.catch(()=>{});return remove;
 }
-export async function generateReport(from:string,to:string):Promise<CareReport>{
+export async function generateReport(from:string,to:string,onProgress?:(phase:ReportPhase)=>void):Promise<CareReport>{
  if(reportBusy)throw new Error('보고서를 생성하고 있어요.');reportBusy=true;const session=dataGeneration();
  try{
+  onProgress?.('checking');
   // Reuse an existing period report, including its original evidence snapshot.
   // Viewing/exporting it never spends another AI request or rewrites history.
   const existing=(await listReports()).find(report=>report.from===from&&report.to===to);
-  assertDataSession(session);if(existing)return existing;
+  assertDataSession(session);if(existing){onProgress?.('complete');return existing;}
   const rows=(await listSituations()).filter(r=>r.status==='saved'&&r.date>=from&&r.date<=to);
   if(!rows.length)throw new Error('선택한 기간에 기록이 없어요.');
   const records:EvidenceRecord[]=rows.map(evidence).sort((a,b)=>a.id.localeCompare(b.id));
-  const response=await request('/report',{from,to,records},session);
+  const response=await request('/report',{from,to,records},session,()=>onProgress?.('waiting'));
+  onProgress?.('saving');
   const sections=validateSections(response.sections,records);assertDataSession(session);if(!await hasConsent())throw new Error('AI 이용 동의가 철회되었어요.');
   const report:CareReport={id:makeId(),from,to,createdAt:new Date().toISOString(),records,sections};
-  const save=reportQueue.then(async()=>{assertDataSession(session);const previous=await listReports();await Storage.setItem(reportsKey,JSON.stringify([report,...previous]));});reportQueue=save.catch(()=>{});await save;return report;
+  const save=reportQueue.then(async()=>{assertDataSession(session);const {entries}=await readReportStorage();assertDataSession(session);await Storage.setItem(reportsKey,JSON.stringify([report,...entries]));});reportQueue=save.catch(()=>{});await save;onProgress?.('complete');return report;
  }finally{reportBusy=false;}
 }

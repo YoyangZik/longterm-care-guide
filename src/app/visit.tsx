@@ -1,7 +1,8 @@
 import { useNotifications } from '@/features/notifications/provider';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import { Redirect, router, Stack } from 'expo-router';
+import { Pressable, ScrollView, View } from 'react-native';
+import { ReadableText as Text } from '@/components/readable-text';
+import { Redirect, router, Stack, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader, ExitFailureDialog } from '@/components/navigation/app-header';
 import { MonthGrid } from '@/components/month-grid';
@@ -17,10 +18,11 @@ import { Action } from '@/features/records/ui';
 import { colors, styles } from '@/design/styles';
 import { usePreparation } from '@/features/preparation/provider';
 import { completeStagePreparation, completionDestination, completionPending } from '@/features/preparation/completion-flow';
+import { firstSetup } from '@/features/preparation/initial-survey-return';
 
 export default function VisitScreen() {
   const { guidance, stage, saveVisit, finishGuide } = useStart();const preparation=usePreparation();
-  const notifications=useNotifications();
+  const notifications=useNotifications();const {surveyEntry}=useLocalSearchParams<{surveyEntry?:string}>();
   // Cancelled selections are not applied on reopening. Existing stored drafts
   // remain untouched; only an explicit completion changes the active schedule.
   const [date, setDate] = useState(guidance.visit.date ?? '');
@@ -31,13 +33,13 @@ export default function VisitScreen() {
   const finishedDestination=useRef<'/home'|'/preparation-complete'|null>(null);
   const destination = stage && !guidance.seen[stage] ? '/guide' : '/home';
   useEffect(() => { navigated.current = false; return () => { navigated.current = true; }; }, []);
-  const leave = () => { if (navigated.current) return; navigated.current = true; router.dismissTo(finishedDestination.current??destination); };
-  const exit = useSafeExit({ enabled: !completionPending(preparation.data), leavesRoute: true,
+  const leave = () => { if (navigated.current) return; navigated.current = true; router.dismissTo(!finishedDestination.current&&destination==='/guide'&&surveyEntry==='discovery'?{pathname:'/guide',params:{surveyEntry:'discovery'}}:finishedDestination.current??destination); };
+  const exit = useSafeExit({ enabled: !completionPending(preparation.data), blockedBy:()=>lock.current||busy, leavesRoute: true,
     save: async () => { if (commit.current) await commit.current; }, leave });
   async function submit(value: Visit) {
     if (!canEditVisit(stage) || lock.current || exit.blocked) return;
     lock.current = true; setBusy(true); setError('');
-    try { commit.current = (async()=>{await saveVisit(value);if(stage&&!guidance.seen[stage]){await preparation.update(data=>{const next=completeStagePreparation(data,stage,Object.values(guidance.seen).some(Boolean));finishedDestination.current=completionDestination(next);return next;});await finishGuide();}await notifications.refresh();})();await commit.current;exit.finishSaved(leave);if(value.date&&guidance.seen[stage!])notifications.offer('visit'); }
+    try { commit.current = (async()=>{await saveVisit(value);if(stage&&!guidance.seen[stage]){let initial=false;await preparation.update(data=>{initial=firstSetup(data)&&!Object.values(guidance.seen).some(Boolean);const next=completeStagePreparation(data,stage,Object.values(guidance.seen).some(Boolean));finishedDestination.current=completionDestination(next);return next;});await finishGuide();if(initial)preparation.rememberSurveyReturn({kind:'visit',stage,route:'/visit',...(surveyEntry==='discovery'?{entry:'discovery' as const}:{})});}await notifications.refresh();})();await commit.current;exit.finishSaved(leave);if(value.date&&guidance.seen[stage!])notifications.offer('visit'); }
     catch { if (!navigated.current) setError('일정을 저장하지 못했어요. 선택은 유지돼요. 다시 시도해주세요.'); }
     finally { commit.current = null; lock.current = false; if (!navigated.current) setBusy(false); }
   }
@@ -48,7 +50,7 @@ export default function VisitScreen() {
     <ScrollView contentContainerStyle={[styles.content, { gap: 16 }]}>
       <Text accessibilityRole="header" style={styles.title}>방문 날짜를 선택해주세요</Text>
       <Text style={styles.secondary}>공단과 연동되지 않는 내 일정이에요.</Text>
-      <View style={styles.card}><MonthGrid month={month} date={date} onMonth={setMonth} onDate={setDate} busy={busy || exit.blocked} /></View>
+      <View style={[styles.card,{padding:8}]}><MonthGrid month={month} date={date} onMonth={setMonth} onDate={setDate} busy={busy || exit.blocked} /></View>
       <View style={{backgroundColor:colors.pale,padding:16,borderRadius:14,gap:6}}><Text style={[styles.secondary,styles.standalone]}>선택한 날짜</Text><Text accessibilityLiveRegion="polite" style={styles.label}>{validDate(date)?`${formatDay(date,true)} ${['일','월','화','수','목','금','토'][new Date(Number(date.slice(0,4)),Number(date.slice(5,7))-1,Number(date.slice(8,10)),12).getDay()]}요일`:'달력에서 날짜를 선택해주세요'}</Text></View>
       <View style={{ gap: 4 }}>
         <Text style={[styles.secondary,styles.standalone]}>방문 시간</Text>

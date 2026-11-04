@@ -1,4 +1,5 @@
-import { ScrollView, Text, View } from 'react-native';
+import { ReadableText as Text } from '../../components/readable-text';
+import { ScrollView, View } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader } from '@/components/navigation/app-header';

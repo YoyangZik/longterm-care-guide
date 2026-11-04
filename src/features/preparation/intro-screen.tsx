@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
-import { Text } from 'react-native';
-import { router, Stack } from 'expo-router';
+import { ReadableText as Text } from '@/components/readable-text';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader, ExitFailureDialog } from '@/components/navigation/app-header';
 import { useSafeExit } from '@/components/navigation/use-safe-exit';
@@ -20,9 +20,11 @@ import { personalization, choosePersonalization, advancePersonalization, finishP
 import { completionDestination } from './completion-flow';
 import { getMedical, medicalOptions } from '../medical/model';
 import { MedicalDeadlineForm } from '../medical/ui';
+import { firstSetup, type SurveyReturn } from './initial-survey-return';
 
 export default function IntroScreen(){
  const p=usePreparation();const {stage,guidance,updateGuidance,finishGuide}=useStart();
+ const {surveyEntry}=useLocalSearchParams<{surveyEntry?:string}>();
  const lock=useRef(false);const [busy,setBusy]=useState(false),[error,setError]=useState('');
  const progress=personalization(stage!,p.data);const node=progress.node;const asking=node.startsWith('ask:');
  const item=asking?findItem(node.slice(4)):undefined;
@@ -30,15 +32,16 @@ export default function IntroScreen(){
  const saved=progress.answers[node]??(asking?p.data.entries[entryKey(preparationScope(stage!,p.data),item!.id)]?.status:node==='experience'?guidance.experience:node==='purpose'&&p.data.purpose!=='first'?p.data.purpose:node==='opinion'?(getMedical(p.data).status==='unanswered'?null:getMedical(p.data).status):node==='result'?p.data.result:null);
  const selected=visiblePreparationAnswer(options,saved);
  const title=node==='experience'?'신청이 처음이신가요?':node==='purpose'?'이번에는 무엇을 준비하시나요?':node==='opinion'?'의사소견서를 제출하셨나요?':node==='result'?'어떤 결과를 받으셨나요?':item?(itemQuestions[item.id]??item.title):'내 상황 확인을 마쳤어요.';
- const leave=()=>{if(!progress.trail.length)router.replace({pathname:'/stage',params:{review:'discovery'}});};
- const exit=useSafeExit({enabled:!progress.completed,leavesRoute:!progress.trail.length,save:async()=>{await p.update(data=>{const current=personalization(stage!,data);return {...data,intros:{...data.intros,[stage!]:previousIntro(current)}};});},leave});
+ const leavingQuestionnaire=useRef(false);
+ const leave=()=>{if(leavingQuestionnaire.current)router.replace(surveyEntry==='discovery'?{pathname:'/stage',params:{review:'discovery'}}:'/stage');};
+ const exit=useSafeExit({enabled:!progress.completed,blockedBy:()=>lock.current||busy,leavesRoute:!progress.trail.length,save:async()=>{await p.update(data=>{const current=personalization(stage!,data);leavingQuestionnaire.current=current.trail.length===0;return {...data,intros:{...data.intros,[stage!]:previousIntro(current)}};});},leave});
  async function choose(value:string){if(lock.current||busy||exit.blocked)return;lock.current=true;setBusy(true);setError('');try{await p.update(data=>{const next=choosePersonalization(data,stage!,personalization(stage!,data),value);return {...next.data,intros:{...next.data.intros,[stage!]:next.progress}};});}catch{setError('답변을 저장하지 못했어요. 다시 선택해주세요.');}finally{lock.current=false;setBusy(false);}}
- async function deadline(date:string|null){if(lock.current||busy||exit.blocked)return;lock.current=true;setBusy(true);setError('');try{let complete=false;let destination:'/home'|'/preparation-complete'='/home';await p.update(data=>{const next=savePersonalizationDeadline(stage!,data,date,Object.values(guidance.seen).some(Boolean));complete=!!next.intros?.[stage!]?.completed;destination=completionDestination(next);return next;});if(complete){await finishGuide();exit.finishSaved(()=>router.replace(destination));}}catch{setError('제출기한을 저장하지 못했어요. 다시 시도해주세요.');}finally{lock.current=false;setBusy(false);}}
+ async function deadline(date:string|null){if(lock.current||busy||exit.blocked)return;lock.current=true;setBusy(true);setError('');try{let complete=false;let target:SurveyReturn|null=null;let destination:'/home'|'/preparation-complete'='/home';await p.update(data=>{const next=savePersonalizationDeadline(stage!,data,date,Object.values(guidance.seen).some(Boolean));complete=!!next.intros?.[stage!]?.completed;if(complete&&firstSetup(data)&&!Object.values(guidance.seen).some(Boolean))target={kind:'intro',stage:stage!,progress:personalization(stage!,data),...(surveyEntry==='discovery'?{entry:'discovery' as const}:{})};destination=completionDestination(next);return next;});if(complete){await finishGuide();if(target)p.rememberSurveyReturn(target);exit.finishSaved(()=>router.replace(destination));}}catch{setError('제출기한을 저장하지 못했어요. 다시 시도해주세요.');}finally{lock.current=false;setBusy(false);}}
  async function next(){if(lock.current||busy||exit.blocked||options&&!selected)return;lock.current=true;setBusy(true);setError('');try{
   if(node==='experience'&&selected)await updateGuidance(data=>({...data,experience:selected as 'first'|'previous'}));
-  let complete=progress.completed;let destination:'/home'|'/preparation-complete'='/home';
-  await p.update(data=>{let current=personalization(stage!,data);let updated=data;if(options&&selected){const choice=choosePersonalization(data,stage!,current,selected);updated=choice.data;current=choice.progress;}const advanced=current.completed?current:advancePersonalization(stage!,updated,current);complete=advanced.completed;const next=finishPersonalization(updated,stage!,advanced,Object.values(guidance.seen).some(Boolean));destination=completionDestination(next);return next;});
-  if(complete){await finishGuide();exit.finishSaved(()=>router.replace(destination));}
+  let complete=progress.completed;let destination:'/home'|'/preparation-complete'='/home';let target:SurveyReturn|null=null;
+  await p.update(data=>{let current=personalization(stage!,data);let updated=data;if(options&&selected){const choice=choosePersonalization(data,stage!,current,selected);updated=choice.data;current=choice.progress;}const advanced=current.completed?current:advancePersonalization(stage!,updated,current);complete=advanced.completed;if(complete&&firstSetup(data)&&!Object.values(guidance.seen).some(Boolean))target={kind:'intro',stage:stage!,progress:current,...(surveyEntry==='discovery'?{entry:'discovery' as const}:{})};const next=finishPersonalization(updated,stage!,advanced,Object.values(guidance.seen).some(Boolean));destination=completionDestination(next);return next;});
+  if(complete){await finishGuide();if(target)p.rememberSurveyReturn(target);exit.finishSaved(()=>router.replace(destination));}
  }catch{setError('진행 내용을 저장하지 못했어요. 다시 시도해주세요.');}finally{lock.current=false;setBusy(false);}}
  return <SafeAreaView edges={['bottom','left','right']} style={styles.screen}>
   <Stack.Screen options={{headerShown:true,header:()=> <AppHeader title="" onBack={()=>void exit.request()} disabled={busy||exit.saving}/>}}/>

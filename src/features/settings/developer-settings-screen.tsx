@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { ReadableText as Text } from '@/components/readable-text';
 import { router, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader } from '@/components/navigation/app-header';
 import { BrandIcon } from '@/components/brand-visuals';
 import { colors, styles } from '@/design/styles';
+import { controls } from '@/design/controls';
 import { useFirstRunTest } from '../start/first-run-test';
 import { Action } from '../records/ui';
 import { makeDemoRecords } from '../records/demo-records';
@@ -14,7 +16,7 @@ export default function DeveloperSettingsScreen(){
  const test=useFirstRunTest();
  const [busy,setBusy]=useState(false),[message,setMessage]=useState('');const lock=useRef(false);
  async function addDemoRecords(){if(lock.current||test.active)return;lock.current=true;setBusy(true);setMessage('');try{const added=await importDemoSituations(makeDemoRecords());setMessage(`가상 기록 ${added}건을 추가했어요. 같은 날짜의 가상 자료는 중복 추가하지 않아요.`);}catch{setMessage('가상 자료를 추가하지 못했어요. 다시 시도해주세요.');}finally{lock.current=false;setBusy(false);}}
- function menu(label:string,onPress:()=>void,disabled=false){return <Pressable accessibilityRole="button" accessibilityState={{disabled}} disabled={disabled} onPress={onPress} style={({pressed})=>({minHeight:64,paddingVertical:16,flexDirection:'row',alignItems:'center',gap:12,opacity:disabled?.45:pressed?.7:1})}><Text style={[styles.label,{flex:1}]}>{label}</Text><BrandIcon name="next" color={colors.muted} size={18}/></Pressable>;}
+ function menu(label:string,onPress:()=>void,disabled=false){return <Pressable accessibilityRole="button" accessibilityState={{disabled}} disabled={disabled} onPress={onPress} style={({pressed})=>[controls.menu,{opacity:disabled?.45:pressed?.7:1}]}><Text style={[styles.label,{flex:1}]}>{label}</Text><BrandIcon name="next" color={colors.muted} size={18}/></Pressable>;}
  return <SafeAreaView edges={['bottom','left','right']} style={styles.screen}>
   <Stack.Screen options={{headerShown:true,header:()=> <AppHeader title="" onBack={()=>router.canGoBack()?router.back():router.replace('/settings')}/>}}/>
   <ScrollView contentContainerStyle={styles.content}>

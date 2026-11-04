@@ -1,8 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {reportModelData,normalizeReport} from '../src/report-response.js';
+import {validateInput,validateOutput} from '../src/protocol.js';
 
 const records=[{id:'original-long-id-a',date:'2026-11-03',type:'movement',body:'침대에서 일어날 때 팔과 등을 받쳐드렸다.'},{id:'original-long-id-b',date:'2026-11-04',type:'daily',body:'점심은 혼자 드셨고 식사 후 주변을 정리했다.'}];
+test('7/30/90 day report validation restores every alias and rejects unknown or missing evidence equally',()=>{
+ for(const days of [7,30,90]){
+  const to='2026-11-04',end=Date.parse(to+'T12:00:00Z');
+  const sources=Array.from({length:days},(_,index)=>({id:`source-${days}-${index}`,date:new Date(end-(days-1-index)*86400000).toISOString().slice(0,10),type:'movement',body:'침대에서 일어날 때 팔과 등을 받쳐드렸다.'}));
+  const input=validateInput('/report',{from:sources[0].date,to,records:sources}),{aliases}=reportModelData(input);
+  const sections=[{title:'전체 돌봄 모습',text:'침대에서 일어날 때 팔과 등을 받쳐드렸어요.',recordIds:['ALL']},{title:'주요 돌봄 양상',text:'팔과 등을 받쳐드린 상황이 기록됐어요.',recordIds:['R1']},{title:'확인 범위',text:'기록된 상황만 정리했어요.',recordIds:['ALL']}];
+  const result=validateOutput('/report',{sections},sources,aliases);assert.deepEqual(result.sections[0].recordIds,sources.map(r=>r.id));assert.equal(result.sections.length,3);
+  assert.throws(()=>validateOutput('/report',{sections:[{...sections[0],recordIds:['R999']}]},sources,aliases),/report-evidence-unknown/);
+  assert.throws(()=>validateOutput('/report',{sections:[{...sections[0],recordIds:['R1']}]},sources,aliases),/missing-evidence/);
+ }
+});
 test('normal reports accept missing optional metadata, harmless key variation, paragraph arrays and duplicate references',()=>{
  const {data,aliases}=reportModelData({from:'2026-11-03',to:'2026-11-04',records});assert.deepEqual(data.records.map(r=>r.id),['R1','R2']);assert.equal(data.records[0].body,records[0].body);
  const report=normalizeReport({sections:[{content:['침대에서 일어날 때 보호자가 팔과 등을 부축해드렸어요.','식사는 혼자 하셨고 보호자가 식사 후 주변을 정리했어요.'],recordIds:['ALL']},{heading:'실제 도움',text:'일어설 때 팔과 등을 받쳐드렸어요.',recordIds:[' r1 ','R1',1],repeated:'false'}]},records,aliases);

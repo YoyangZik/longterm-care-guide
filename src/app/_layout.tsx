@@ -16,6 +16,7 @@ function Routes(){
   // A remounted navigator cannot return to screens from the other session.
   useEffect(()=>{if(session)router.replace(testing?'/':'/home');},[session,testing]);
   return <><StatusBar style="dark"/><Stack screenOptions={{headerShown:false,contentStyle:{backgroundColor:colors.background}}}>
+    <Stack.Screen name="privacy"/>
     <Stack.Protected guard={!onboarded} redirectTo={stage?'/home':'/stage'}><Stack.Screen name="index"/></Stack.Protected>
     <Stack.Protected guard={onboarded} redirectTo="/">
       <Stack.Screen name="stage" options={{animation:'none'}}/>

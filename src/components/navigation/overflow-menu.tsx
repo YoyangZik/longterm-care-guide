@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { BrandIcon } from '@/components/brand-visuals';
-import { Modal,Pressable,ScrollView,Text,View } from 'react-native';
+import { Modal, Pressable, ScrollView, View } from 'react-native';
+import { ReadableText as Text } from '@/components/readable-text';
 import { colors,styles } from '@/design/styles';
 import { DialogActions, type ControlAction } from '../action-controls';
 export type MenuItem = {label:string;onPress:()=>void;disabled?:boolean};

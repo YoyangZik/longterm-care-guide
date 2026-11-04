@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackHandler } from 'react-native';
 import { usePreventRemove, useFocusEffect } from 'expo-router';
 import { createExitGate } from './exit-gate';
-type Options = { enabled: boolean; save: () => Promise<void>; leave: () => void; discard?: () => void; cancelPending?: () => void; leavesRoute?: boolean };
-export function useSafeExit({ enabled, save, leave, discard, cancelPending, leavesRoute = false }: Options) {
+type Options = { enabled: boolean; save: () => Promise<void>; leave: () => void; discard?: () => void; cancelPending?: () => void; leavesRoute?: boolean; blockedBy?:boolean|(()=>boolean) };
+export function useSafeExit({ enabled, save, leave, discard, cancelPending, leavesRoute = false,blockedBy=false }: Options) {
   const gate = useRef(createExitGate());
   const [saving, setSaving] = useState(false);
   const [allowRemoval, setAllowRemoval] = useState(false);
@@ -14,12 +14,15 @@ export function useSafeExit({ enabled, save, leave, discard, cancelPending, leav
   const disable = usePreventRemove(enabled && focused && !allowRemoval, () => requestRef.current());
   const finish = useCallback(() => { if (leavesRoute) { setAllowRemoval(true); disable(); } leave(); }, [disable, leave, leavesRoute]);
   const request = useCallback(async () => {
+    // A save/next transition owns this screen. Consume system back as well as
+    // header presses instead of racing it with a second cursor mutation.
+    if(typeof blockedBy==='function'?blockedBy():blockedBy)return;
     cancelPending?.();
     setSaving(true);
     const result = await gate.current.attempt(save, finish);
     if (result === false) setFailed(true);
     if (result !== null) setSaving(false);
-  }, [cancelPending, save, finish]);
+  }, [blockedBy,cancelPending, save, finish]);
   useEffect(() => { requestRef.current = () => { void request(); }; }, [request]);
   useEffect(() => {
     if (!enabled || !focused) return;

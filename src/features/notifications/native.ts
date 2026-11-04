@@ -22,7 +22,9 @@ export async function clearOwned(){
  N.clearLastNotificationResponse();
 }
 export async function schedule(plan:Plan) {
-  await N.scheduleNotificationAsync({identifier:plan.id,content:{title:plan.kind==='care'?'돌봄기록':'방문조사 준비',body:plan.kind==='care'?'오늘 돌봄 중 남겨둘 일이 있었나요?':'내일 방문조사 예정일이에요. 준비한 내용을 확인해 보세요.',data:{owner,kind:plan.kind,day:plan.day,visitDate:plan.visitDate??null},sound:'default'},trigger:{type:N.SchedulableTriggerInputTypes.DATE,date:new Date(plan.at),channelId:'care-reminders',delivery:'bestEffort'}});
+  const date=new Date(plan.at);
+  const trigger=plan.repeat==='daily'?{type:N.SchedulableTriggerInputTypes.DAILY,hour:date.getHours(),minute:date.getMinutes(),channelId:'care-reminders',delivery:'bestEffort' as const}:{type:N.SchedulableTriggerInputTypes.DATE,date,channelId:'care-reminders',delivery:'bestEffort' as const};
+  await N.scheduleNotificationAsync({identifier:plan.id,content:{title:plan.kind==='care'?'돌봄기록':'방문조사 준비',body:plan.kind==='care'?'오늘 돌봄 중 남겨둘 일이 있었나요?':'내일 방문조사 예정일이에요. 준비한 내용을 확인해 보세요.',data:{owner,kind:plan.kind,day:plan.repeat?null:plan.day,visitDate:plan.visitDate??null},sound:'default'},trigger});
 }
 export function observe(onTap:(kind:unknown,visitDate:unknown)=>void) {
   if(!supported)return ()=>{};

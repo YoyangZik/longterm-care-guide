@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Text } from 'react-native';
+import { ActivityIndicator } from 'react-native';
+import { ReadableText as Text } from '@/components/readable-text';
 import { QuestionScroll } from '@/components/question-scroll';
 import { Redirect, router, Stack, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,7 +29,7 @@ function Questions(){
   function edit(d:Preparation,patch:Partial<Preparation>){return {...d,...patch};}
   async function saveSelection(){if(!selected)return;if(kind==='experience'){await updateGuidance(d=>({...d,experience:selected as 'first'|'previous'}));if(selected==='first')await p.update(d=>edit(d,{purpose:'first'}));}else await p.update(d=>edit(d,kind==='purpose'?{purpose:selected as Purpose}:{result:selected as Result}));}
   const leave=()=>!field?router.replace('/stage'):router.canGoBack()?router.back():router.replace('/home');
-  const exit=useSafeExit({enabled:!alreadyDone,leavesRoute:step===0,save:async()=>{if(step===0)await saveSelection();else {setStep(0);setSelected('previous');}},leave:()=>{if(step===0)leave();}});
+  const exit=useSafeExit({enabled:!alreadyDone,blockedBy:()=>writeLock.current||busy,leavesRoute:step===0,save:async()=>{if(step===0)await saveSelection();else {setStep(0);setSelected('previous');}},leave:()=>{if(step===0)leave();}});
   async function next(){if(writeLock.current||busy||exit.blocked||!selected||!stage)return;writeLock.current=true;setBusy(true);setError('');try{await saveSelection();if(kind==='experience'&&selected==='previous'){setStep(1);setSelected(p.data.purpose==='first'?null:p.data.purpose);return;}if(!field){await finishGuide();await p.update(d=>({...d,setup:{...d.setup,[stage]:true}}));}exit.finishSaved(()=>field?leave():router.replace('/home'));}catch{setError('선택을 저장하지 못했어요. 선택은 유지돼요. 다시 시도해주세요.');}finally{writeLock.current=false;setBusy(false);}}
   if(alreadyDone)return <Redirect href="/home"/>;
   return <SafeAreaView edges={['bottom','left','right']} style={styles.screen}>

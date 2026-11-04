@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text } from 'react-native';
+import { ActivityIndicator, ScrollView } from 'react-native';
+import { ReadableText as Text } from '@/components/readable-text';
 import { router, Stack, useLocalSearchParams, usePreventRemove } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader } from '@/components/navigation/app-header';

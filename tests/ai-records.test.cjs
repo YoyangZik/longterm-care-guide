@@ -5,7 +5,7 @@ function fixture(values=new Map(),extra={}){
  const fetch=async(url,options)=>{fetches.push({url,options});const result=await transport(url,options);return typeof result?.ok==='boolean'?result:{ok:true,json:async()=>result};};
  function load(file){file=path.resolve(__dirname,'..',file);if(cache.has(file))return cache.get(file);const mod={exports:{}};cache.set(file,mod.exports);
   const source=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
-  const requireLocal=id=>Object.hasOwn(extra,id)?extra[id]:id==='@react-native-async-storage/async-storage'?storage:id==='expo-secure-store'?{getItemAsync:async()=>storedCode,setItemAsync:async(k,v)=>{storedCode=v;},deleteItemAsync:async()=>{storedCode=null;}}:load(path.relative(path.resolve(__dirname,'..'),path.resolve(path.dirname(file),id+'.ts')));
+  const requireLocal=id=>{const local=path.resolve(path.dirname(file),id);return Object.hasOwn(extra,id)?extra[id]:id==='@react-native-async-storage/async-storage'?storage:id==='expo-secure-store'?{getItemAsync:async()=>storedCode,setItemAsync:async(k,v)=>{storedCode=v;},deleteItemAsync:async()=>{storedCode=null;}}:load(path.relative(path.resolve(__dirname,'..'),local+(fs.existsSync(local+'.ts')?'.ts':'.tsx')));};
   new Function('require','module','exports','fetch','process',source)(requireLocal,mod,mod.exports,fetch,{env:{EXPO_PUBLIC_AI_SERVER_URL:'https://relay.example'}});cache.set(file,mod.exports);return mod.exports;
  }
  const s=load('src/features/records/situation-storage.ts'),m=load('src/features/records/situation-model.ts'),ai=load('src/features/records/ai-client.ts'),model=load('src/features/records/ai-model.ts');
@@ -13,6 +13,103 @@ function fixture(values=new Map(),extra={}){
  return {s,m,ai,model,values,record,load,fetches,getStoredCode:()=>storedCode,setTransport(fn){transport=fn;}};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
+test('report progress follows network and durable storage, with no premature completion or extra request for saved output',async()=>{
+ const values=new Map();let finishSave;
+ const f=fixture(values,{'@react-native-async-storage/async-storage':{getItem:async key=>values.get(key)??null,setItem:async(key,value)=>{if(key==='care-diary:ai-reports:v1')await new Promise(resolve=>{finishSave=resolve;});values.set(key,value);}}});
+ const row=f.record();await f.s.saveSituation(row);await tick();await f.ai.consent(true);
+ let respond;const phases=[];f.setTransport(async()=>new Promise(resolve=>{respond=resolve;}));
+ const pending=f.ai.generateReport(row.date,row.date,phase=>phases.push(phase));await until(()=>respond);assert.deepEqual(phases,['checking','waiting']);
+ respond({sections:[{title:'전체 돌봄 모습',text:'팔을 받쳐드렸어요.',recordIds:[row.id],repeated:false}]});await until(()=>finishSave);
+ assert.deepEqual(phases,['checking','waiting','saving']);assert.equal(values.has('care-diary:ai-reports:v1'),false);
+ finishSave();const report=await pending;assert.deepEqual(phases,['checking','waiting','saving','complete']);assert.equal((await f.ai.listReports())[0].id,report.id);
+ const cached=[];await f.ai.generateReport(row.date,row.date,phase=>cached.push(phase));assert.deepEqual(cached,['checking','complete']);assert.equal(f.fetches.length,1);
+});
+test('report preflight, timeout, and evidence failures never report completion or store partial results',async()=>{
+ for(const failure of ['consent','timeout','evidence']){
+  const f=fixture(),row=f.record();await f.s.saveSituation(row);await tick();if(failure!=='consent')await f.ai.consent(true);
+  f.setTransport(async()=>{if(failure==='timeout')throw Object.assign(new Error('timeout'),{name:'AbortError'});return {sections:[{title:'본문',text:'본문',recordIds:['unknown'],repeated:false}]};});
+  const phases=[];await assert.rejects(f.ai.generateReport(row.date,row.date,phase=>phases.push(phase)));
+  assert.deepEqual(phases,failure==='consent'?['checking']:failure==='timeout'?['checking','waiting']:['checking','waiting','saving']);assert.deepEqual(await f.ai.listReports(),[]);assert.equal((await f.s.listSituations())[0].body,row.body);
+ }
+});
+test('invalid stored reports stay untouched while valid reports remain readable, creatable and deletable',async()=>{
+ const f=fixture(),row=f.record();await f.s.saveSituation(row);await tick();await f.ai.consent(true);
+ const good={id:'good',from:row.date,to:row.date,createdAt:new Date().toISOString(),records:[f.model.evidence(row)],sections:[{title:'전체 돌봄 모습',text:'팔과 등을 받쳐드렸어요.',recordIds:[row.id],repeated:false}]};
+ const bad={...good,id:'bad',sections:[{...good.sections[0],recordIds:['unknown']}]};
+ const entries=[bad,null,{...good,from:'invalid'},good],raw=JSON.stringify(entries);f.values.set('care-diary:ai-reports:v1',raw);
+ const library=await f.ai.readReportLibrary();assert.equal(library.invalidCount,3);assert.deepEqual(library.reports,[good]);assert.equal(f.values.get('care-diary:ai-reports:v1'),raw);
+ f.setTransport(async()=>({sections:good.sections}));const created=await f.ai.generateReport('2026-10-29',row.date);
+ assert.deepEqual(JSON.parse(f.values.get('care-diary:ai-reports:v1')),[created,...entries]);
+ await f.ai.deleteReport('good');assert.deepEqual(JSON.parse(f.values.get('care-diary:ai-reports:v1')),[created,...entries.slice(0,3)]);
+ assert.equal((await f.ai.readReportLibrary()).invalidCount,3);assert.equal(await f.ai.hasConsent(),true);assert.equal((await f.s.listSituations())[0].body,row.body);
+});
+test('unreadable report containers cannot be overwritten or trigger an AI request',async()=>{
+ for(const raw of ['', '{broken','{}','null']){
+  const f=fixture();f.values.set('care-diary:ai-reports:v1',raw);await f.ai.consent(true);
+  await assert.rejects(f.ai.generateReport('2026-10-29','2026-11-04'),/보고서 목록/);
+  await assert.rejects(f.ai.deleteReport('any'),/보고서 목록/);
+  assert.equal(f.values.get('care-diary:ai-reports:v1'),raw);assert.equal(f.fetches.length,0);
+ }
+});
+test('mocked native restart restores consent, credential and records without an AI call; missing web code is explained',async()=>{
+ const codes=new Map(),secureStore={getItemAsync:async key=>codes.get(key)??null,setItemAsync:async(key,value)=>{codes.set(key,value);},deleteItemAsync:async key=>{codes.delete(key);}};
+ const values=new Map(),extra={'expo-secure-store':secureStore},f=fixture(values,extra),row=f.record();await f.s.saveSituation(row);await tick();await f.ai.consent(true);
+ f.setTransport(async()=>({valid:true}));await f.ai.setAccessCode('b'.repeat(64));
+ const restart=fixture(values,extra),{loadReportState,reportReadiness}=restart.load('src/features/records/report-readiness.ts');
+ const state=await loadReportState();assert.equal(state.agreed,true);assert.equal(state.registered,true);assert.equal(state.rows[0].body,row.body);
+ assert.equal(reportReadiness(state,1,'https://relay.example',false).canGenerate,true);assert.equal(restart.fetches.length,0);
+ await restart.ai.deleteAccessCode();const missing=await loadReportState();assert.equal(missing.agreed,true);assert.equal(missing.registered,false);
+ assert.match(reportReadiness(missing,1,'https://relay.example',true).issues.join(' '),/새로고침.*다시 등록/);
+ // Browser storage is deliberately not used for credentials; a new module has no code.
+ const web=f.load('src/features/records/ai-credentials.web.ts');await web.setCode('key','a'.repeat(64));assert.ok(await web.getCode('key'));
+ assert.equal(await restart.load('src/features/records/ai-credentials.web.ts').getCode('key'),null);
+});
+test('each report screen read fails independently without resetting other restored state',async()=>{
+ for(const failure of ['records','library','consent','access']){
+  const fail=async name=>{if(name===failure)throw new Error('unavailable');};
+  const f=fixture(new Map(),{'./ai-client':{hasConsent:async()=>{await fail('consent');return true;},hasAccessCode:async()=>{await fail('access');return true;},readReportLibrary:async()=>{await fail('library');return {reports:[],invalidCount:0};}},'./situation-storage':{listSituations:async()=>{await fail('records');return [];}}});
+  const {loadReportState,reportReadiness}=f.load('src/features/records/report-readiness.ts'),state=await loadReportState();
+  assert.equal(state.agreed,failure==='consent'?null:true);assert.equal(state.registered,failure==='access'?null:true);
+  assert.equal(state.rows===null,failure==='records');assert.equal(state.library===null,failure==='library');
+  const readiness=reportReadiness(state,1,'https://relay.example',false);assert.equal(readiness.canGenerate,false);assert.equal(readiness.readFailed,true);assert.equal(readiness.issues.length,1);
+ }
+});
+test('report screen keeps saved reports usable during read failures and ignores older reload completions',async()=>{
+ const slots=[],focus=[],requests=[];let cursor=0,mounted=false,settingsChanged,appChanged;
+ const react={useState(initial){const i=cursor++;if(!(i in slots))slots[i]=typeof initial==='function'?initial():initial;return [slots[i],value=>{slots[i]=typeof value==='function'?value(slots[i]):value;}];},useRef(initial){const i=cursor++;if(!(i in slots))slots[i]={current:initial};return slots[i];},useCallback:fn=>fn,useEffect:()=>{}};
+ const jsx=(type,props)=>({type,props});
+ const f=fixture(new Map(),{'react':react,'react/jsx-runtime':{jsx,jsxs:jsx},'expo-router':{useFocusEffect:fn=>{if(!mounted)focus.push(fn);},Stack:{Screen:'Screen'},router:{}},'react-native':{AppState:{addEventListener:(_name,fn)=>{appChanged=fn;return {remove(){}};}},Platform:{OS:'ios'},Text:'Text',View:'View',Pressable:'Pressable',ScrollView:'ScrollView',KeyboardAvoidingView:'KeyboardAvoidingView'},'react-native-safe-area-context':{SafeAreaView:'SafeAreaView'},'@/components/navigation/app-header':{AppHeader:'AppHeader'},'@/components/navigation/overflow-menu':{InfoDialog:'InfoDialog'},'@/design/styles':{colors:{},styles:{}},'./ui':{Action:'Action'},'./ai-client':{serverURL:'https://relay.example',subscribeAISettings:fn=>{settingsChanged=fn;return ()=>{};}},'./situation-storage':{subscribeSituations:()=>()=>{}},'./report-pdf':{},'./time':{localDate:()=> '2026-11-04'},'./report-content':{ReportContent:'ReportContent'}});
+ const readiness=f.load('src/features/records/report-readiness.ts');readiness.loadReportState=()=>new Promise(resolve=>requests.push(resolve));
+ const Screen=f.load('src/features/records/reports-screen.tsx').default;
+ const draw=()=>{cursor=0;return Screen();};
+ function nodes(node,result=[]){if(Array.isArray(node)){node.forEach(n=>nodes(n,result));return result;}if(!node||typeof node!=='object')return result;result.push(node);nodes(node.props?.children,result);return result;}
+ const actions=()=>nodes(draw()).filter(n=>n.type==='Action');
+ draw();const cleanups=focus.map(fn=>fn());mounted=true;
+ const row=f.record(),range=f.load('src/features/records/situation-query.ts').reviewRange(7,'2026-11-04'),report={id:'saved',...range,createdAt:new Date().toISOString(),records:[f.model.evidence(row)],sections:[{title:'전체 돌봄 모습',text:'도움이 기록됐어요.',recordIds:[row.id],repeated:false}]};
+ requests.shift()({rows:null,library:{reports:[report],invalidCount:1},agreed:null,registered:null});await tick();
+ assert.equal(actions().find(n=>n.props.label==='이 기간의 저장된 보고서 보기').props.disabled,false);
+ assert.equal(actions().find(n=>n.props.label==='저장된 보고서 열기').props.disabled,false);
+ assert.ok(actions().find(n=>n.props.label==='다시 불러오기'));
+ settingsChanged();const older=requests.shift();appChanged('active');const newer=requests.shift();
+ newer({rows:[row],library:{reports:[],invalidCount:0},agreed:true,registered:true});await tick();
+ assert.equal(actions().find(n=>n.props.label==='AI 보고서 생성').props.disabled,false);
+ older({rows:null,library:null,agreed:false,registered:false});await tick();
+ assert.equal(actions().find(n=>n.props.label==='AI 보고서 생성').props.disabled,false);
+ cleanups.forEach(fn=>fn?.());
+});
+test('7/30/90 day reports send full originals, preserve evidence after restart and reuse saved output',async()=>{
+ for(const period of [7,30,90]){
+  const f=fixture(),q=f.load('src/features/records/situation-query.ts'),range=q.reviewRange(period,'2026-11-04');
+  for(let index=0;index<period;index++){
+   const date=new Date(range.from+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+index);
+   await f.s.saveSituation(f.record('일어설 때 팔과 등을 받쳐드렸어요.',date.toISOString().slice(0,10)));
+  }
+  await tick();await f.ai.consent(true);
+  f.setTransport(async(url,options)=>{const input=JSON.parse(options.body);assert.equal(input.records.length,period);return {sections:[{title:'전체 돌봄 모습',text:'일어설 때 팔과 등을 받쳐드렸어요.\n\n기록에 적힌 상황을 정리했어요.',recordIds:input.records.map(r=>r.id),repeated:false}]};});
+  const report=await f.ai.generateReport(range.from,range.to);assert.equal(report.records.length,period);assert.equal(f.fetches.length,1);
+  const restart=fixture(f.values);assert.deepEqual(await restart.ai.generateReport(range.from,range.to),report);assert.equal(restart.fetches.length,0);
+ }
+});
 test('AI settings renders all consent/code states using actual stored credentials; deletion and withdrawal preserve care data',async()=>{
  const slots=[],focus=[];let cursor=0,mounted=false;
  const react={useState(initial){const i=cursor++;if(!(i in slots))slots[i]=typeof initial==='function'?initial():initial;return [slots[i],value=>{slots[i]=typeof value==='function'?value(slots[i]):value;}];},useRef(initial){const i=cursor++;if(!(i in slots))slots[i]={current:initial};return slots[i];},useCallback:fn=>fn,useEffect:()=>{}};
@@ -80,7 +177,7 @@ test('7/30/90 day periods include both exact boundaries and exclude drafts and f
 });
 test('report sends originals, caches exact evidence, does not re-call AI on read or HTML/PDF generation, tracks edits and deletion',async()=>{
  const f=fixture();const a=f.record('원본 <script> 내용'),b=f.record('식기 준비','2026-11-03');await f.s.saveSituation(a);await f.s.saveSituation(b);await tick();await f.ai.consent(true);f.setTransport(async(url,opts)=>{const data=JSON.parse(opts.body);assert.equal(data.records.length,2);assert.ok(data.records.some(r=>r.body===a.body));return {sections:[{title:'실제 도움',text:'기록에 적힌 도움만 정리',recordIds:data.records.map(r=>r.id),repeated:false}]};});
- const p=await f.ai.generateReport('2026-10-29','2026-11-04');assert.equal(f.fetches.length,1);assert.equal((await f.ai.listReports())[0].id,p.id);const html=f.load('src/features/records/report-html.ts').reportHTML(p);assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script>'));assert.ok(html.includes(f.model.AI_NOTICE));assert.equal(f.fetches.length,1);
+ const p=await f.ai.generateReport('2026-10-29','2026-11-04');assert.equal(f.fetches.length,1);assert.equal((await f.ai.listReports())[0].id,p.id);const html=f.load('src/features/records/report-html.ts').reportHTML(p);assert.ok(!html.includes('원본 &lt;script&gt; 내용'));assert.ok(!html.includes('<script>'));assert.ok(f.load('src/features/records/report-html.ts').reportHTML({...p,sections:[{...p.sections[0],title:'제목 <script>',text:'내용 <script>'}]}).includes('&lt;script&gt;'));assert.ok(html.includes(f.model.AI_NOTICE));assert.equal(f.fetches.length,1);
  assert.equal(f.model.reportStale(p,await f.s.listSituations()),false);assert.equal(f.model.reportStale(p,[a]),true);assert.equal(f.model.reportStale(p,[a,{...b,body:'변경'}]),true);assert.equal(f.model.reportStale(p,[a,b,f.record('추가')]),true);
 });
 test('a server-normalized report longer than the former 2500-character bound remains intact in storage and PDF HTML',async()=>{
@@ -91,7 +188,7 @@ test('the same report period reuses stored output even after record changes or c
  const f=fixture(),row=f.record();await f.s.saveSituation(row);await tick();await f.ai.consent(true);
  f.setTransport(async()=>({sections:[{title:'전체 돌봄 모습',text:'침대에서 일어날 때 보호자가 팔과 등을 받쳐드렸어요.',recordIds:[row.id],repeated:false},{title:'주요 돌봄 양상',text:'일어설 때 몸을 받쳐드린 도움이 확인돼요.',recordIds:[row.id],repeated:false},{title:'확인 범위',text:'작성된 기록이 적어 다른 상황은 알 수 없어요.',recordIds:[row.id],repeated:false}]}));
  const original=await f.ai.generateReport('2026-10-29','2026-11-04');const raw=f.values.get('care-diary:ai-reports:v1');await f.ai.consent(false);await f.s.deleteSituation(row.id);const cached=await f.ai.generateReport('2026-10-29','2026-11-04');assert.deepEqual(cached,original);assert.equal(f.fetches.length,1);assert.equal(f.values.get('care-diary:ai-reports:v1'),raw);assert.equal(f.model.reportStale(cached,await f.s.listSituations()),true);
- const html=f.load('src/features/records/report-html.ts').reportHTML(cached);assert.ok(html.indexOf('<h2>확인 범위</h2>')<html.indexOf('<h2>근거 기록</h2>'));assert.ok(html.includes('href="#record-0"'));
+ const html=f.load('src/features/records/report-html.ts').reportHTML(cached);assert.ok(html.includes('<h2>확인 범위</h2>'));assert.ok(!html.includes('근거 기록'));assert.ok(!html.includes('href="#record-0"'));assert.equal(JSON.stringify(cached),JSON.stringify(original));
 });
 test('report deletion targets only selected reports, serializes concurrent deletes, and preserves originals and AI summaries',async()=>{
  const f=fixture(),row=f.record();await f.s.saveSituation(row);await tick();await f.ai.consent(true);const identity=f.model.fingerprint(row);await f.s.patchSituationAI(row.id,identity,{status:'ready',requestId:'test',fingerprint:identity,text:'팔과 등을 받쳐드렸어요.'});
@@ -109,8 +206,8 @@ test('empty reports and oversized full originals never make a network call; fabr
 for(const platform of ['ios','android'])test(`${platform} PDF adapter awaits file copy, offers share/print/save and never calls Claude (native APIs mocked)`,async()=>{
  const events=[];let copied=false;
  class Directory{constructor(...parts){this.uri=parts.map(x=>x.uri??x).join('/');}create(){events.push('mkdir');}static async pickDirectoryAsync(){events.push('picker');return new Directory('content://chosen');}}
- class File{constructor(...parts){this.uri=parts.map(x=>x.uri??x).join('/');}async copy(output,options){events.push('copy-start');assert.equal(options.overwrite,true);await tick();copied=true;events.push('copy-end');}delete(){events.push('delete-cache');}}
- const f=fixture(new Map(),{'react-native':{Platform:{OS:platform}},'expo-file-system':{Directory,File,Paths:{document:'file://documents'}},'expo-print':{printToFileAsync:async({html})=>{assert.ok(html.includes('돌봄기록 종합 보고서'));events.push('pdf');return {uri:'file://cache/report.pdf'};},printAsync:async()=>events.push('print')},'expo-sharing':{isAvailableAsync:async()=>true,shareAsync:async uri=>{if(uri!=='file://cache/report.pdf')assert.equal(copied,true);events.push('share');}}});
+ class File{constructor(...parts){this.uri=parts.map(x=>x.uri??x).join('/');}async copy(output,options){events.push('copy-start');assert.equal(options.overwrite,false);assert.ok(!output.uri.includes('saved-report'));assert.ok(output.uri.includes('돌봄기록_종합보고서_'));await tick();copied=true;events.push('copy-end');}delete(){events.push('delete-cache');}}
+ const f=fixture(new Map(),{'react-native':{Platform:{OS:platform}},'expo-file-system':{Directory,File,Paths:{document:'file://documents',cache:'file://cache'}},'expo-print':{printToFileAsync:async({html})=>{assert.ok(html.includes('돌봄기록 종합 보고서'));events.push('pdf');return {uri:'file://cache/report.pdf'};},printAsync:async()=>events.push('print')},'expo-sharing':{isAvailableAsync:async()=>true,shareAsync:async uri=>{if(uri!=='file://cache/report.pdf')assert.equal(copied,true);events.push('share');}}});
  const r=f.record(),p={id:'saved-report',from:r.date,to:r.date,createdAt:new Date().toISOString(),records:[f.model.evidence(r)],sections:[{title:'도움',text:'팔을 받쳐드림',recordIds:[r.id],repeated:false}]};const {exportReport}=f.load('src/features/records/report-pdf.ts');
  await exportReport(p,'save');assert.ok(events.indexOf('copy-end')<events.indexOf('delete-cache'));if(platform==='android')assert.ok(events.includes('picker'));else assert.ok(events.indexOf('copy-end')<events.indexOf('share'));
  await exportReport(p,'share');await exportReport(p,'print');assert.equal(f.fetches.length,0);assert.equal(events.filter(x=>x==='pdf').length,2);assert.equal(events.filter(x=>x==='print').length,1);

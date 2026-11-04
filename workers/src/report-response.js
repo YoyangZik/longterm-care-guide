@@ -27,7 +27,7 @@ export function normalizeReport(value,records,aliases=new Map()){
   if(!Array.isArray(rawIds)||!rawIds.length)throw new Error('report-evidence-missing');
   let recordIds=[];
   for(const raw of rawIds){
-   if(raw==='ALL'){
+   if(typeof raw==='string'&&raw.trim().toUpperCase()==='ALL'){
     if(index!==0&&!/확인\s*범위/u.test(title))throw new Error('report-evidence-unknown');
     recordIds.push(...records.map(r=>r.id));continue;
    }

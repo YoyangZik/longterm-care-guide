@@ -1,11 +1,13 @@
-import { Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, View, useWindowDimensions } from 'react-native';
+import { ReadableText as Text } from '@/components/readable-text';
 import { colors, styles } from '@/design/styles';
+import { controls } from '@/design/controls';
 import { BrandIcon, type BrandIconName } from './brand-visuals';
 
 export type ControlAction = { label: string; onPress: () => void; disabled?: boolean; secondary?: boolean };
 
 export function SubtleButton({ label, onPress, disabled = false, icon, expanded }: ControlAction & { icon?: BrandIconName; expanded?: boolean }) {
- return <Pressable accessibilityRole="button" accessibilityState={{disabled, ...(expanded === undefined ? {} : {expanded})}} disabled={disabled} onPress={onPress} style={({pressed})=>({minHeight:48,paddingHorizontal:14,paddingVertical:10,borderRadius:12,borderWidth:0,borderColor:colors.border,backgroundColor:pressed?colors.pale:'transparent',flexDirection:'row',alignItems:'center',gap:10,opacity:disabled?.45:1})}>
+ return <Pressable accessibilityRole="button" accessibilityState={{disabled, ...(expanded === undefined ? {} : {expanded})}} disabled={disabled} onPress={onPress} style={({pressed})=>[controls.secondary,{flexDirection:'row',alignItems:'center',justifyContent:'flex-start',gap:10,opacity:disabled?.45:pressed?.75:1}]}>
   {icon&&<BrandIcon name={icon}/>}<Text style={[styles.linkText,{fontSize:17,lineHeight:26,textAlign:'left',flexShrink:1}]}>{label}</Text>
   {expanded!==undefined&&<View style={{marginLeft:'auto'}}><BrandIcon name={expanded?'minus':'plus'} size={20} color={colors.green}/></View>}
  </Pressable>;
